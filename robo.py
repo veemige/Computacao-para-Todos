@@ -11,7 +11,49 @@ HEIGHT = 500
 WIDTH = 700
 FPS = 60
 
-branco = (255,255,255)
+cordatela = (137,137,137)
+intervalos_cores = {
+    "vermelho": ((0, 120, 70), (10, 255, 255)),
+    "azul": ((100, 180, 50), (130, 255, 255)),
+    "verde": ((40, 70, 70), (90, 255, 255))
+}
+
+def detectar_cor(camera, intervalos_cores, roi_tamanho=(200, 200)):
+    ret, frame = camera.read()
+    if not ret:
+        return None, None
+
+    altura, largura, _ = frame.shape
+    w, h = roi_tamanho
+
+    # Calcula o centro da imagem
+    centro_x = largura // 2
+    centro_y = altura // 2
+
+    # Define a área de interesse (ROI)
+    x1 = centro_x - w // 2
+    y1 = centro_y - h // 2
+    x2 = centro_x + w // 2
+    y2 = centro_y + h // 2
+
+    roi = frame[y1:y2, x1:x2]
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+
+    for cor, (lower, upper) in intervalos_cores.items():
+        lower_np = np.array(lower)
+        upper_np = np.array(upper)
+
+        mask = cv2.inRange(hsv, lower_np, upper_np)
+        contornos, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+        if contornos and cv2.contourArea(max(contornos, key=cv2.contourArea)) > 2000:
+            return cor, frame  # Cor detectada na ROI
+
+    # Desenha um retângulo na imagem original (só visual)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+
+    return None, frame
+
 
 class Celula:
     def __init__(self, linha, coluna):
@@ -134,7 +176,7 @@ class Personagem:
         self.imagem = self.imagem_original
         self.x = x
         self.y = y
-        self.angulo = -90
+        self.angulo = 0
         self.movimento = list()
 
     def girar(self, graus):
@@ -188,6 +230,7 @@ def init_jogo(tamanho_celula):
         return tela, relogio, personagem
 
 def main():
+        camera = cv2.VideoCapture(0)
         tela, relogio, personagem = init_jogo(tamanho_celula=100)
         rodando = True
         executarMovimento = False
@@ -199,6 +242,9 @@ def main():
         labirinto.gerar()
         objetivo_linha = labirinto.ultima_celula.linha
         objetivo_coluna = labirinto.ultima_celula.coluna
+        ultima_cor_detectada = None
+        tempo_ultima_detecao = 0
+        cooldown = 1.0  # segundos
 
 
         while rodando:
@@ -219,6 +265,31 @@ def main():
                             #personagem.mover_para_frente(10)
                         if evento.key == pg.K_RETURN:
                             executarMovimento = True
+                
+                cor_detectada, frame = detectar_cor(camera, intervalos_cores)
+                tempo_atual = time.time()
+
+                # Só adiciona movimento se passou o cooldown OU a cor é diferente da anterior
+                if cor_detectada and (cor_detectada != ultima_cor_detectada or tempo_atual - tempo_ultima_detecao > cooldown):
+                    if cor_detectada == "vermelho":
+                        personagem.movimento.append("LEFT")
+                        print("Detectado: VERMELHO -> LEFT")
+                    elif cor_detectada == "azul":
+                        personagem.movimento.append("RIGHT")
+                        print("Detectado: AZUL -> RIGHT")
+                    elif cor_detectada == "verde":
+                        personagem.movimento.append("SPACE")
+                        print("Detectado: VERDE -> SPACE")
+                if not cor_detectada:
+                    ultima_cor_detectada = None
+                    # Atualiza histórico
+                ultima_cor_detectada = cor_detectada
+                tempo_ultima_detecao = tempo_atual
+
+                if frame is not None:
+                    cv2.imshow("Camera", frame)
+                    cv2.waitKey(1)
+
             else:
                 if personagem.movimento[indice] == "LEFT":
                     personagem.girar(90)
@@ -233,9 +304,11 @@ def main():
                     personagem.movimento.clear()
                     executarMovimento = False
                     indice = 0
+            
 
 
-            tela.fill(branco)
+
+            tela.fill(cordatela)
             labirinto.desenhar(tela, tamanho_celula)
             x_obj = objetivo_coluna * tamanho_celula + tamanho_celula // 4
             y_obj = objetivo_linha * tamanho_celula + tamanho_celula // 4
@@ -253,9 +326,13 @@ def main():
 
 
             pg.display.update()
+            cv2.imshow("Camera", frame)
+            cv2.waitKey(1)
             relogio.tick(FPS)
 
         pg.quit()
+        camera.release()
+        cv2.destroyAllWindows()
         sys.exit()
 
 if __name__ == "__main__":

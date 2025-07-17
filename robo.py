@@ -6,6 +6,7 @@ import sys
 import math
 import time
 import threading
+import PySimpleGUI as sg
 
 HEIGHT = 500
 WIDTH = 700
@@ -17,6 +18,39 @@ intervalos_cores = {
     "azul": ((100, 180, 50), (130, 255, 255)),
     "verde": ((40, 70, 70), (90, 255, 255))
 }
+
+import tkinter as tk
+
+def escolher_dificuldade_tkinter():
+    dificuldade = {"valores": None}
+
+    def selecionar(valores):
+        dificuldade["valores"] = valores
+        root.destroy()
+
+    root = tk.Tk()
+    root.title("Escolha a Dificuldade")
+
+    tk.Label(root, text="Escolha a Dificuldade:", font=("Arial", 16)).pack(pady=20)
+
+    tk.Button(root, text="Muito Fácil", bg="green", width=20, height=2,
+              command=lambda: selecionar((5, 5, 80))).pack(pady=10)
+
+    tk.Button(root, text="Fácil", bg="lightgreen", width=20, height=2,
+              command=lambda: selecionar((10, 10, 50))).pack(pady=10)
+
+    tk.Button(root, text="Médio", bg="khaki", width=20, height=2,
+              command=lambda: selecionar((15, 15, 40))).pack(pady=10)
+
+    tk.Button(root, text="Difícil", bg="salmon", width=20, height=2,
+              command=lambda: selecionar((25, 25, 25))).pack(pady=10)
+    
+    tk.Button(root, text="Muito Difícil", bg="red", width=20, height=2,
+              command=lambda: selecionar((35, 35, 20))).pack(pady=10)
+
+    root.mainloop()
+    return dificuldade["valores"]
+
 
 def detectar_cor(camera, intervalos_cores, roi_tamanho=(200, 200)):
     ret, frame = camera.read()
@@ -170,7 +204,7 @@ class GeradorLabirinto:
 
 
 class Personagem:
-    def __init__(self, caminho_imagem, x, y,larguraP=140, alturaP=140):
+    def __init__(self, caminho_imagem, x, y,larguraP, alturaP):
         self.imagem_original = pg.image.load(caminho_imagem).convert_alpha()
         self.imagem_original = pg.transform.scale(self.imagem_original, (larguraP, alturaP))
         self.imagem = self.imagem_original
@@ -219,25 +253,24 @@ class Personagem:
         return False  # ângulo inválido
 
 
-def init_jogo(tamanho_celula):
+def init_jogo(tamanho_celula,linhas,colunas):
         pg.init()
-        tela = pg.display.set_mode((WIDTH, HEIGHT))
+        largura = colunas * tamanho_celula
+        altura = linhas * tamanho_celula
+        tela = pg.display.set_mode((largura, altura))
         pg.display.set_caption("ROBO")
         relogio = pg.time.Clock()
 
-        personagem = Personagem("carro.png", tamanho_celula // 2, tamanho_celula // 2)
+        personagem = Personagem("carro.png", tamanho_celula // 2, tamanho_celula // 2,tamanho_celula*2,tamanho_celula*2)
 
         return tela, relogio, personagem
-
 def main():
+        linhas, colunas, tamanho_celula = escolher_dificuldade_tkinter()
         camera = cv2.VideoCapture(0)
-        tela, relogio, personagem = init_jogo(tamanho_celula=100)
+        tela, relogio, personagem = init_jogo(tamanho_celula,linhas,colunas)
         rodando = True
         executarMovimento = False
         indice = 0
-        tamanho_celula = 100
-        linhas = 5
-        colunas = 7
         labirinto = GeradorLabirinto(linhas, colunas)
         labirinto.gerar()
         objetivo_linha = labirinto.ultima_celula.linha
@@ -297,7 +330,7 @@ def main():
                     personagem.girar(-90)
                 elif personagem.movimento[indice] == "SPACE":
                     if personagem.pode_mover_frente(labirinto, tamanho_celula):
-                        personagem.mover_para_frente(100)
+                        personagem.mover_para_frente(tamanho_celula)
                 time.sleep(0.5)
                 indice += 1
                 if indice == len(personagem.movimento):

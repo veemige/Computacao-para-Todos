@@ -19,34 +19,47 @@ intervalos_cores = {
 }
 
 def escolher_dificuldade_tkinter():
-    dificuldade = {"valores": None}
+    dificuldade = {"valores": None, "tipo_movimento": None}
 
-    def selecionar(valores):
+    def selecionar(valores, tipo_movimento):
         dificuldade["valores"] = valores
+        dificuldade["tipo_movimento"] = tipo_movimento
         root.destroy()
 
     root = tk.Tk()
-    root.title("Escolha a Dificuldade")
+    root.title("Configurações do Jogo")
 
-    tk.Label(root, text="Escolha a Dificuldade:", font=("Arial", 16)).pack(pady=20)
+    tk.Label(root, text="Escolha a Dificuldade:", font=("Arial", 16)).pack(pady=10)
 
-    tk.Button(root, text="Muito Fácil", bg="green", width=20, height=2,
-              command=lambda: selecionar((5, 5, 120))).pack(pady=10)
+    dificuldades = [
+        ("Muito Fácil", "green", (5, 5, 120, "muito_facil")),
+        ("Fácil", "lightgreen", (5, 5, 120)),
+        ("Médio", "khaki", (7, 7, 80)),
+        ("Difícil", "salmon", (10, 10, 60)),
+        ("Muito Difícil", "red", (15, 15, 40)),
+    ]
 
-    tk.Button(root, text="Fácil", bg="lightgreen", width=20, height=2,
-              command=lambda: selecionar((10, 10, 60))).pack(pady=10)
+    dificuldade_var = tk.StringVar()
+    for texto, cor, valores in dificuldades:
+        tk.Radiobutton(root, text=texto, bg=cor, variable=dificuldade_var,
+                       value=str(valores), width=20, indicatoron=0).pack(pady=2)
 
-    tk.Button(root, text="Médio", bg="khaki", width=20, height=2,
-              command=lambda: selecionar((15, 15, 40))).pack(pady=10)
+    tk.Label(root, text="Tipo de Movimento:", font=("Arial", 16)).pack(pady=10)
 
-    tk.Button(root, text="Difícil", bg="salmon", width=20, height=2,
-              command=lambda: selecionar((25, 25, 24))).pack(pady=10)
-    
-    tk.Button(root, text="Muito Difícil", bg="red", width=20, height=2,
-              command=lambda: selecionar((35, 35, 18))).pack(pady=10)
+    tipo_movimento_var = tk.StringVar(value="comando")
+    tk.Radiobutton(root, text="Movimento por Comando (⌨️ ENTER)", variable=tipo_movimento_var, value="comando").pack()
+    tk.Radiobutton(root, text="Movimento Imediato (⬅️ ➡️ ⬇️)", variable=tipo_movimento_var, value="direto").pack()
+
+    def confirmar():
+        if dificuldade_var.get():
+            valores = eval(dificuldade_var.get())
+            tipo = tipo_movimento_var.get()
+            selecionar(valores, tipo)
+
+    tk.Button(root, text="Confirmar", command=confirmar, bg="gray").pack(pady=20)
 
     root.mainloop()
-    return dificuldade["valores"]
+    return dificuldade["valores"], dificuldade["tipo_movimento"]
 
 
 def detectar_cor(camera, intervalos_cores, roi_tamanho=(200, 200)):
@@ -190,14 +203,97 @@ class GeradorLabirinto:
                 y = l * tamanho_celula
                 celula = self.labirinto[l][c]
 
+                # Desenhar paredes
                 if celula.paredes["cima"]:
-                    pg.draw.line(tela, (0,0,0), (x, y), (x + tamanho_celula, y), 2)
+                    pg.draw.line(tela, (0, 0, 0), (x, y), (x + tamanho_celula, y), 2)
                 if celula.paredes["baixo"]:
-                    pg.draw.line(tela, (0,0,0), (x, y + tamanho_celula), (x + tamanho_celula, y + tamanho_celula), 2)
+                    pg.draw.line(tela, (0, 0, 0), (x, y + tamanho_celula), (x + tamanho_celula, y + tamanho_celula), 2)
                 if celula.paredes["esquerda"]:
-                    pg.draw.line(tela, (0,0,0), (x, y), (x, y + tamanho_celula), 2)
+                    pg.draw.line(tela, (0, 0, 0), (x, y), (x, y + tamanho_celula), 2)
                 if celula.paredes["direita"]:
-                    pg.draw.line(tela, (0,0,0), (x + tamanho_celula, y), (x + tamanho_celula, y + tamanho_celula), 2)
+                    pg.draw.line(tela, (0, 0, 0), (x + tamanho_celula, y), (x + tamanho_celula, y + tamanho_celula), 2)
+
+                centro_x = x + tamanho_celula // 2
+                centro_y = y + tamanho_celula // 2
+                faixa_tamanho = int(tamanho_celula * 0.5)
+                cor_faixa = (255, 255, 0)
+
+                # Verifica conexões (sem parede)
+                conexoes = []
+                if l > 0 and not celula.paredes["cima"]:
+                    conexoes.append("cima")
+                if l < self.linhas - 1 and not celula.paredes["baixo"]:
+                    conexoes.append("baixo")
+                if c > 0 and not celula.paredes["esquerda"]:
+                    conexoes.append("esquerda")
+                if c < self.colunas - 1 and not celula.paredes["direita"]:
+                    conexoes.append("direita")
+
+                if len(conexoes) == 1:
+                    direcao = conexoes[0]
+                    if direcao in ["esquerda", "direita"]:
+                        pg.draw.line(tela, cor_faixa,
+                                    (centro_x - faixa_tamanho // 2, centro_y),
+                                    (centro_x + faixa_tamanho // 2, centro_y), 2)
+                    else:
+                        pg.draw.line(tela, cor_faixa,
+                                    (centro_x, centro_y - faixa_tamanho // 2),
+                                    (centro_x, centro_y + faixa_tamanho // 2), 2)
+
+                elif len(conexoes) == 2:
+                    # Cruzamento em linha reta
+                    if set(conexoes) == {"esquerda", "direita"}:
+                        pg.draw.line(tela, cor_faixa,
+                                    (centro_x - faixa_tamanho // 2, centro_y),
+                                    (centro_x + faixa_tamanho // 2, centro_y), 2)
+                    elif set(conexoes) == {"cima", "baixo"}:
+                        pg.draw.line(tela, cor_faixa,
+                                    (centro_x, centro_y - faixa_tamanho // 2),
+                                    (centro_x, centro_y + faixa_tamanho // 2), 2)
+                    else:
+                        # Desenho do "L" com orientação baseada nas direções
+                        if set(conexoes) == {"cima", "direita"}:
+                            pg.draw.line(tela, cor_faixa,
+                                        (centro_x, centro_y - faixa_tamanho // 2),
+                                        (centro_x, centro_y), 2)
+                            pg.draw.line(tela, cor_faixa,
+                                        (centro_x, centro_y),
+                                        (centro_x + faixa_tamanho // 2, centro_y), 2)
+
+                        elif set(conexoes) == {"cima", "esquerda"}:
+                            pg.draw.line(tela, cor_faixa,
+                                        (centro_x, centro_y - faixa_tamanho // 2),
+                                        (centro_x, centro_y), 2)
+                            pg.draw.line(tela, cor_faixa,
+                                        (centro_x, centro_y),
+                                        (centro_x - faixa_tamanho // 2, centro_y), 2)
+
+                        elif set(conexoes) == {"baixo", "direita"}:
+                            pg.draw.line(tela, cor_faixa,
+                                        (centro_x, centro_y + faixa_tamanho // 2),
+                                        (centro_x, centro_y), 2)
+                            pg.draw.line(tela, cor_faixa,
+                                        (centro_x, centro_y),
+                                        (centro_x + faixa_tamanho // 2, centro_y), 2)
+
+                        elif set(conexoes) == {"baixo", "esquerda"}:
+                            pg.draw.line(tela, cor_faixa,
+                                        (centro_x, centro_y + faixa_tamanho // 2),
+                                        (centro_x, centro_y), 2)
+                            pg.draw.line(tela, cor_faixa,
+                                        (centro_x, centro_y),
+                                        (centro_x - faixa_tamanho // 2, centro_y), 2)
+
+                elif len(conexoes) > 2:
+                    # Prioriza linha horizontal para evitar cruz
+                    if "esquerda" in conexoes or "direita" in conexoes:
+                        pg.draw.line(tela, cor_faixa,
+                                    (centro_x - faixa_tamanho // 2, centro_y),
+                                    (centro_x + faixa_tamanho // 2, centro_y), 2)
+                    elif "cima" in conexoes or "baixo" in conexoes:
+                        pg.draw.line(tela, cor_faixa,
+                                    (centro_x, centro_y - faixa_tamanho // 2),
+                                    (centro_x, centro_y + faixa_tamanho // 2), 2)
 
 
 class Personagem:
@@ -252,7 +348,9 @@ class Personagem:
 
 def init_jogo(tamanho_celula,linhas,colunas):
         pg.init()
-        largura = colunas * tamanho_celula
+        largura_labirinto = colunas * tamanho_celula
+        largura_terminal = 300  # Largura da "extensão" lateral
+        largura = largura_labirinto + largura_terminal
         altura = linhas * tamanho_celula
         tela = pg.display.set_mode((largura, altura))
         pg.display.set_caption("ROBO")
@@ -260,25 +358,63 @@ def init_jogo(tamanho_celula,linhas,colunas):
 
         personagem = Personagem("carro.png", tamanho_celula // 2, tamanho_celula // 2,tamanho_celula*2,tamanho_celula*2)
 
-        return tela, relogio, personagem
+        return tela, relogio, personagem, largura_terminal
 def main():
-        linhas, colunas, tamanho_celula = escolher_dificuldade_tkinter()
+        valores,tipo_movimento = escolher_dificuldade_tkinter()
+        modo_comando = tipo_movimento == "comando"
+
+        if len(valores) == 4 and valores[3] == "muito_facil":
+            linhas, colunas, tamanho_celula = valores[:3]
+            modo_muito_facil = True
+        else:
+            linhas, colunas, tamanho_celula = valores
+            modo_muito_facil = False
+
         camera = cv2.VideoCapture(0)
-        tela, relogio, personagem = init_jogo(tamanho_celula,linhas,colunas)
+        tela, relogio, personagem, largura_terminal = init_jogo(tamanho_celula,linhas,colunas)
         rodando = True
         executarMovimento = False
         indice = 0
         labirinto = GeradorLabirinto(linhas, colunas)
-        labirinto.gerar()
-        objetivo_linha = labirinto.ultima_celula.linha
-        objetivo_coluna = labirinto.ultima_celula.coluna
+        if not modo_muito_facil:
+            labirinto.gerar()
+            objetivo_linha = labirinto.ultima_celula.linha
+            objetivo_coluna = labirinto.ultima_celula.coluna
+        else:
+            objetivo_linha = linhas - 1
+            objetivo_coluna = colunas - 1
         ultima_cor_detectada = None
         tempo_ultima_detecao = 0
         cooldown = 1.0  # segundos
 
+        log_terminal = []  # Lista pra armazenar as mensagens do terminal
+        limite_linhas_terminal = 15  # Quantas linhas queremos mostrar
+        fonte_terminal = pg.font.SysFont("Segoe UI Emoji", 16)
+
+        def adicionar_log(msg):
+            log_terminal.append(msg)
+            if len(log_terminal) > limite_linhas_terminal:
+                log_terminal.pop(0)
+        
+        def desenhar_terminal(tela, largura_terminal, altura_tela, largura_total):
+            x_terminal = largura_total - largura_terminal
+            y_terminal = 0
+            altura_linha = 18
+
+            # Fundo do terminal
+            pg.draw.rect(tela, (30, 30, 30), (x_terminal, y_terminal, largura_terminal, altura_tela))
+
+            # Borda
+            pg.draw.rect(tela, (255, 255, 255), (x_terminal, y_terminal, largura_terminal, altura_tela), 2)
+
+            # Linhas de texto
+            for i, linha in enumerate(log_terminal):
+                texto = fonte_terminal.render(linha, True, (200, 200, 200))
+                tela.blit(texto, (x_terminal + 10, y_terminal + i * altura_linha))
+
 
         while rodando:
-            if executarMovimento == False:
+            if modo_comando and not executarMovimento:
                 for evento in pg.event.get():
                     if evento.type == pg.QUIT:
                         rodando = False
@@ -286,12 +422,15 @@ def main():
                     elif evento.type == pg.KEYDOWN:
                         if evento.key == pg.K_LEFT:
                             personagem.movimento.append("LEFT")
+                            adicionar_log("Detectado: 🔁 ESQUERDA")
                             #personagem.girar(90)
                         if evento.key == pg.K_RIGHT:
                             personagem.movimento.append("RIGHT")
+                            adicionar_log("Detectado: 🔁 DIREITA")
                             #personagem.girar(-90)
                         if evento.key == pg.K_SPACE:
                             personagem.movimento.append("SPACE")
+                            adicionar_log("Detectado: ⬇️ FRENTE")
                             #personagem.mover_para_frente(10)
                         if evento.key == pg.K_RETURN:
                             executarMovimento = True
@@ -303,13 +442,54 @@ def main():
                 if cor_detectada and (cor_detectada != ultima_cor_detectada or tempo_atual - tempo_ultima_detecao > cooldown):
                     if cor_detectada == "vermelho":
                         personagem.movimento.append("LEFT")
-                        print("Detectado: VERMELHO -> LEFT")
+                        adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
                     elif cor_detectada == "azul":
                         personagem.movimento.append("RIGHT")
-                        print("Detectado: AZUL -> RIGHT")
+                        adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
                     elif cor_detectada == "verde":
                         personagem.movimento.append("SPACE")
-                        print("Detectado: VERDE -> SPACE")
+                        adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
+                if not cor_detectada:
+                    ultima_cor_detectada = None
+                    # Atualiza histórico
+                ultima_cor_detectada = cor_detectada
+                tempo_ultima_detecao = tempo_atual
+
+                if frame is not None:
+                    cv2.imshow("Camera", frame)
+                    cv2.waitKey(1)
+            
+            elif not modo_comando:
+                for evento in pg.event.get():
+                    if evento.type == pg.QUIT:
+                        rodando = False
+                    elif evento.type == pg.KEYDOWN:
+                        if evento.key == pg.K_LEFT:
+                            personagem.girar(90)
+                            adicionar_log("🔁 ESQUERDA")
+                        elif evento.key == pg.K_RIGHT:
+                            personagem.girar(-90)
+                            adicionar_log("🔁 DIREITA")
+                        elif evento.key == pg.K_SPACE:
+                            if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
+                                personagem.mover_para_frente(tamanho_celula)
+                                adicionar_log("⬇️ FRENTE")
+                    
+                
+                cor_detectada, frame = detectar_cor(camera, intervalos_cores)
+                tempo_atual = time.time()
+
+                if cor_detectada and (cor_detectada != ultima_cor_detectada or tempo_atual - tempo_ultima_detecao > cooldown):
+                    if cor_detectada == "vermelho":
+                        personagem.girar(90)
+                        adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
+                    elif cor_detectada == "azul":
+                        personagem.girar(-90)
+                        adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
+                    elif cor_detectada == "verde":
+                        if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
+                            personagem.mover_para_frente(tamanho_celula)
+                            adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
                 if not cor_detectada:
                     ultima_cor_detectada = None
                     # Atualiza histórico
@@ -320,14 +500,16 @@ def main():
                     cv2.imshow("Camera", frame)
                     cv2.waitKey(1)
 
+
             else:
                 if personagem.movimento[indice] == "LEFT":
                     personagem.girar(90)
                 elif personagem.movimento[indice] == "RIGHT":
                     personagem.girar(-90)
                 elif personagem.movimento[indice] == "SPACE":
-                    if personagem.pode_mover_frente(labirinto, tamanho_celula):
+                    if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
                         personagem.mover_para_frente(tamanho_celula)
+
                 time.sleep(0.5)
                 indice += 1
                 if indice == len(personagem.movimento):
@@ -339,14 +521,15 @@ def main():
 
 
             tela.fill(cordatela)
-            labirinto.desenhar(tela, tamanho_celula)
+            if not modo_muito_facil:
+                labirinto.desenhar(tela, tamanho_celula)
             x_obj = objetivo_coluna * tamanho_celula + tamanho_celula // 4
             y_obj = objetivo_linha * tamanho_celula + tamanho_celula // 4
             tamanho_objetivo = tamanho_celula // 2
 
             pg.draw.rect(tela, (0, 255, 0), (x_obj, y_obj, tamanho_objetivo, tamanho_objetivo))
             personagem.desenhar(tela)
-            
+            desenhar_terminal(tela, largura_terminal, tela.get_height(), tela.get_width())
 
             col_atual = int(personagem.x // tamanho_celula)
             lin_atual = int(personagem.y // tamanho_celula)

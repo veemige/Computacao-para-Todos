@@ -14,7 +14,7 @@ HEIGHT = 500
 WIDTH = 700
 FPS = 60
 
-cordatela = (137,137,137)
+cordatela = (100,103,97)
 intervalos_cores = {
     "vermelho": ((0, 120, 70), (10, 255, 255)),
     "azul": ((100, 180, 50), (130, 255, 255)),
@@ -199,7 +199,7 @@ class GeradorLabirinto:
 
 
     
-    def desenhar(self, tela, tamanho_celula):
+    def desenhar(self, tela, tamanho_celula, desenhar_linhas_guia=True):
         for l in range(self.linhas):
             for c in range(self.colunas):
                 x = c * tamanho_celula
@@ -208,13 +208,16 @@ class GeradorLabirinto:
 
                 # Desenhar paredes
                 if celula.paredes["cima"]:
-                    pg.draw.line(tela, (0, 0, 0), (x, y), (x + tamanho_celula, y), 3)
+                    pg.draw.line(tela, (0, 0, 0), (x, y), (x + tamanho_celula, y), 4)
                 if celula.paredes["baixo"]:
-                    pg.draw.line(tela, (0, 0, 0), (x, y + tamanho_celula), (x + tamanho_celula, y + tamanho_celula), 3)
+                    pg.draw.line(tela, (0, 0, 0), (x, y + tamanho_celula), (x + tamanho_celula, y + tamanho_celula), 4)
                 if celula.paredes["esquerda"]:
-                    pg.draw.line(tela, (0, 0, 0), (x, y), (x, y + tamanho_celula), 3)
+                    pg.draw.line(tela, (0, 0, 0), (x, y), (x, y + tamanho_celula), 4)
                 if celula.paredes["direita"]:
-                    pg.draw.line(tela, (0, 0, 0), (x + tamanho_celula, y), (x + tamanho_celula, y + tamanho_celula), 3)
+                    pg.draw.line(tela, (0, 0, 0), (x + tamanho_celula, y), (x + tamanho_celula, y + tamanho_celula), 4)
+
+                if not desenhar_linhas_guia:
+                    continue  # Pula o desenho das linhas amarelas
 
                 centro_x = x + tamanho_celula // 2
                 centro_y = y + tamanho_celula // 2
@@ -409,28 +412,57 @@ def main():
         modo_comando = tipo_movimento == "comando"
         tempo_ultimo_movimento = 0
         delay_entre_movimentos = 500
+        modo_muito_facil = False
+        
+        linhas, colunas, tamanho_celula = valores[:3]
+        labirinto = GeradorLabirinto(linhas, colunas) 
 
         if len(valores) == 4 and valores[3] == "muito_facil":
             linhas, colunas, tamanho_celula = valores[:3]
             modo_muito_facil = True
+            # Remove todas as paredes no modo muito fácil
+            for l in range(linhas):
+                for c in range(colunas):
+                    labirinto.labirinto[l][c].paredes = {
+                        "cima": False,
+                        "baixo": False,
+                        "esquerda": False,
+                        "direita": False
+                    }
+        if not modo_muito_facil:
+            if len(valores) == 4 and valores[3] == "facil":
+                # Remove todas as paredes
+                for l in range(linhas):
+                    for c in range(colunas):
+                        labirinto.labirinto[l][c].paredes = {
+                            "cima": False,
+                            "baixo": False,
+                            "esquerda": False,
+                            "direita": False
+                        }
+                # Adiciona uma parede vertical no meio
+                meio = colunas // 2
+                altura_parede = (linhas // 2) + 2  # até um pouco além do meio
+                for l in range(altura_parede):
+                    if meio > 0:
+                        labirinto.labirinto[l][meio].paredes["esquerda"] = True
+                        labirinto.labirinto[l][meio - 1].paredes["direita"] = True
+                objetivo_linha = linhas - 1
+                objetivo_coluna = colunas - 1
+            else:
+                labirinto.gerar()
+                objetivo_linha = labirinto.ultima_celula.linha
+                objetivo_coluna = labirinto.ultima_celula.coluna
         else:
-            linhas, colunas, tamanho_celula = valores
-            modo_muito_facil = False
+            objetivo_linha = linhas - 1
+            objetivo_coluna = colunas - 1
 
         camera = cv2.VideoCapture(0)
         tela, relogio, personagem, largura_terminal = init_jogo(tamanho_celula,linhas,colunas)
         rodando = True
         executarMovimento = False
         indice = 0
-        labirinto = GeradorLabirinto(linhas, colunas)
         contador = 0
-        if not modo_muito_facil:
-            labirinto.gerar()
-            objetivo_linha = labirinto.ultima_celula.linha
-            objetivo_coluna = labirinto.ultima_celula.coluna
-        else:
-            objetivo_linha = linhas - 1
-            objetivo_coluna = colunas - 1
         ultima_cor_detectada = None
         tempo_ultima_detecao = 0
         cooldown = 1.0  # segundos
@@ -585,20 +617,19 @@ def main():
             tela.fill(cordatela)
 
             altura_terminal = 100  # ou o valor que tu estiver usando
-            altura_labirinto = HEIGHT - altura_terminal
 
             # Linhas horizontais
             for i in range(linhas + 1):
                 y = i * tamanho_celula
-                pg.draw.line(tela, (200, 200, 200), (0, y), (colunas * tamanho_celula, y), 1)
+                pg.draw.line(tela, (211, 211, 211), (0, y), (colunas * tamanho_celula, y), 1)
 
             # Linhas verticais
-            for j in range(linhas + 1):
+            for j in range(colunas + 1):
                 x = j * tamanho_celula
-                pg.draw.line(tela, (200, 200, 200), (x, 0), (x, altura_labirinto), 1)
+                pg.draw.line(tela, (211, 211, 211), (x, 0), (x, linhas * tamanho_celula), 1)
 
             if not modo_muito_facil:
-                labirinto.desenhar(tela, tamanho_celula)
+                labirinto.desenhar(tela, tamanho_celula, desenhar_linhas_guia=not (len(valores) == 4 and valores[3] == "facil"))
             x_obj = objetivo_coluna * tamanho_celula + tamanho_celula // 4
             y_obj = objetivo_linha * tamanho_celula + tamanho_celula // 4
             tamanho_objetivo = tamanho_celula // 2

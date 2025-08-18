@@ -28,4 +28,5 @@ Projeto educacional para popularização do pensamento computacional, com demons
 
 ## Créditos
 
-Projeto Computação para Todos - FURG - 2025
+Projeto Computação para Todos - FURG - 2025  
+João Vitor

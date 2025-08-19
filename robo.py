@@ -1,3 +1,4 @@
+
 #Projeto Computação para Todos, objetivo: popularização do pensamento computacional
 #Demonstração de algoritmos de forma lúdica, forma interativa
 import numpy as np
@@ -199,7 +200,7 @@ class GeradorLabirinto:
 
 
     
-    def desenhar(self, tela, tamanho_celula, desenhar_linhas_guia=True):
+    def desenhar(self, tela, tamanho_celula, desenhar_linhas_guia=True, sprite_parede=None):
         for l in range(self.linhas):
             for c in range(self.colunas):
                 x = c * tamanho_celula
@@ -300,6 +301,12 @@ class GeradorLabirinto:
                         pg.draw.line(tela, cor_faixa,
                                     (centro_x, centro_y - faixa_tamanho // 2),
                                     (centro_x, centro_y + faixa_tamanho // 2), 2)
+        # Desenhar sprites de parede especiais (modo fácil)
+        if hasattr(self, 'parede_sprites') and sprite_parede is not None:
+            for l, c in self.parede_sprites:
+                x = c * tamanho_celula
+                y = l * tamanho_celula
+                tela.blit(sprite_parede, (x, y))
 
 
 class Personagem:
@@ -440,13 +447,17 @@ def main():
                             "esquerda": False,
                             "direita": False
                         }
-                # Adiciona uma parede vertical no meio
+                # Adiciona uma parede de sprites cobrindo 4 das 5 células da coluna do meio
                 meio = colunas // 2
-                altura_parede = (linhas // 2) + 2  # até um pouco além do meio
-                for l in range(altura_parede):
-                    if meio > 0:
-                        labirinto.labirinto[l][meio].paredes["esquerda"] = True
-                        labirinto.labirinto[l][meio - 1].paredes["direita"] = True
+                linhas_parede = [0, 1, 2, 3]  # cobre 4 das 5 linhas
+                for l in linhas_parede:
+                    labirinto.labirinto[l][meio].paredes["cima"] = True
+                    labirinto.labirinto[l][meio].paredes["baixo"] = True
+                    labirinto.labirinto[l][meio].paredes["esquerda"] = True
+                    labirinto.labirinto[l][meio].paredes["direita"] = True
+                # Salva as posições para desenhar os sprites depois
+                parede_sprites = [(l, meio) for l in linhas_parede]
+                labirinto.parede_sprites = parede_sprites
                 objetivo_linha = linhas - 1
                 objetivo_coluna = colunas - 1
             else:
@@ -629,7 +640,12 @@ def main():
                 pg.draw.line(tela, (211, 211, 211), (x, 0), (x, linhas * tamanho_celula), 1)
 
             if not modo_muito_facil:
-                labirinto.desenhar(tela, tamanho_celula, desenhar_linhas_guia=not (len(valores) == 4 and valores[3] == "facil"))
+                if len(valores) == 4 and valores[3] == "facil":
+                    sprite_parede = pg.image.load("parede.png").convert_alpha()
+                    sprite_parede = pg.transform.scale(sprite_parede, (tamanho_celula, tamanho_celula))
+                    labirinto.desenhar(tela, tamanho_celula, desenhar_linhas_guia=False, sprite_parede=sprite_parede)
+                else:
+                    labirinto.desenhar(tela, tamanho_celula, desenhar_linhas_guia=True)
             x_obj = objetivo_coluna * tamanho_celula + tamanho_celula // 4
             y_obj = objetivo_linha * tamanho_celula + tamanho_celula // 4
             tamanho_objetivo = tamanho_celula // 2

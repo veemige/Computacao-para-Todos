@@ -39,6 +39,10 @@ Projeto educacional para popularização do pensamento computacional, com demons
 
 Propriedade: gera um “labirinto perfeito” (existe exatamente um caminho simples entre quaisquer duas células, sem ciclos).
 
+### Exemplos visuais
+![Labirinto gerado na dificuldade média](docs/imagens/capturaDoLabirinto1.png)
+![Labirinto gerado na dificuldade difícil](docs/imagens/capturaDoLabirinto2.png)
+
 ### Ajuste do objetivo final
 - Ao terminar, percorre as células visitadas e seleciona a de maior distância Manhattan a partir de (0,0), desde que seja pelo menos 8
 - Se nenhuma atingir 8, retorna a célula inicial

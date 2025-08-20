@@ -1,4 +1,3 @@
-
 #Projeto Computação para Todos, objetivo: popularização do pensamento computacional
 #Demonstração de algoritmos de forma lúdica, forma interativa
 import numpy as np
@@ -173,7 +172,6 @@ class GeradorLabirinto:
 
         return mais_distante
 
-
     def gerar(self):
         pilha = []
         atual = self.labirinto[0][0]
@@ -197,9 +195,6 @@ class GeradorLabirinto:
         
         self.ultima_celula = self.encontrar_celula_distante(min_distancia=8)
 
-
-
-    
     def desenhar(self, tela, tamanho_celula, desenhar_linhas_guia=True, sprite_parede=None):
         for l in range(self.linhas):
             for c in range(self.colunas):
@@ -401,33 +396,44 @@ class Personagem:
 
 
 def init_jogo(tamanho_celula,linhas,colunas):
-        pg.init()
-        largura_labirinto = colunas * tamanho_celula
-        largura_terminal = 300  # Largura da "extensão" lateral
-        largura = largura_labirinto + largura_terminal
-        altura = linhas * tamanho_celula
-        tela = pg.display.set_mode((largura, altura))
-        pg.display.set_caption("ROBO")
-        relogio = pg.time.Clock()
+    pg.init()
+    largura_labirinto = colunas * tamanho_celula
+    largura_terminal = 300  # Largura da "extensão" lateral
+    largura = largura_labirinto + largura_terminal
+    altura = linhas * tamanho_celula
+    tela = pg.display.set_mode((largura, altura))
+    pg.display.set_caption("ROBO")
+    relogio = pg.time.Clock()
 
-        personagem = Personagem("C:\\Users\\João Melo\\Documents\\robo\\docs\\assets\\carro.png", tamanho_celula // 2, tamanho_celula // 2,tamanho_celula*2,tamanho_celula*2)
+    personagem = Personagem("C:\\Users\\João Melo\\Documents\\robo\\docs\\assets\\carro.png", tamanho_celula // 2, tamanho_celula // 2,tamanho_celula*2,tamanho_celula*2)
 
-        return tela, relogio, personagem, largura_terminal
+    return tela, relogio, personagem, largura_terminal
+
 
 def main():
-        valores,tipo_movimento = escolher_dificuldade_tkinter()
-        modo_comando = tipo_movimento == "comando"
-        tempo_ultimo_movimento = 0
-        delay_entre_movimentos = 500
-        modo_muito_facil = False
-        
-        linhas, colunas, tamanho_celula = valores[:3]
-        labirinto = GeradorLabirinto(linhas, colunas) 
+    valores,tipo_movimento = escolher_dificuldade_tkinter()
+    modo_comando = tipo_movimento == "comando"
+    delay_entre_movimentos = 500  # ms de pausa entre comandos executados no modo comando
+    modo_muito_facil = False
+    
+    linhas, colunas, tamanho_celula = valores[:3]
+    labirinto = GeradorLabirinto(linhas, colunas) 
 
-        if len(valores) == 4 and valores[3] == "muito_facil":
-            linhas, colunas, tamanho_celula = valores[:3]
-            modo_muito_facil = True
-            # Remove todas as paredes no modo muito fácil
+    if len(valores) == 4 and valores[3] == "muito_facil":
+        linhas, colunas, tamanho_celula = valores[:3]
+        modo_muito_facil = True
+        # Remove todas as paredes no modo muito fácil
+        for l in range(linhas):
+            for c in range(colunas):
+                labirinto.labirinto[l][c].paredes = {
+                    "cima": False,
+                    "baixo": False,
+                    "esquerda": False,
+                    "direita": False
+                }
+    if not modo_muito_facil:
+        if len(valores) == 4 and valores[3] == "facil":
+            # Remove todas as paredes
             for l in range(linhas):
                 for c in range(colunas):
                     labirinto.labirinto[l][c].paredes = {
@@ -436,245 +442,250 @@ def main():
                         "esquerda": False,
                         "direita": False
                     }
-        if not modo_muito_facil:
-            if len(valores) == 4 and valores[3] == "facil":
-                # Remove todas as paredes
-                for l in range(linhas):
-                    for c in range(colunas):
-                        labirinto.labirinto[l][c].paredes = {
-                            "cima": False,
-                            "baixo": False,
-                            "esquerda": False,
-                            "direita": False
-                        }
-                # Adiciona uma parede de sprites cobrindo 4 das 5 células da coluna do meio
-                meio = colunas // 2
-                linhas_parede = [0, 1, 2, 3]  # cobre 4 das 5 linhas
-                for l in linhas_parede:
-                    labirinto.labirinto[l][meio].paredes["cima"] = True
-                    labirinto.labirinto[l][meio].paredes["baixo"] = True
-                    labirinto.labirinto[l][meio].paredes["esquerda"] = True
-                    labirinto.labirinto[l][meio].paredes["direita"] = True
-                # Salva as posições para desenhar os sprites depois
-                parede_sprites = [(l, meio) for l in linhas_parede]
-                labirinto.parede_sprites = parede_sprites
-                objetivo_linha = linhas - 1
-                objetivo_coluna = colunas - 1
-            else:
-                labirinto.gerar()
-                objetivo_linha = labirinto.ultima_celula.linha
-                objetivo_coluna = labirinto.ultima_celula.coluna
-        else:
+            # Adiciona uma parede de sprites cobrindo 4 das 5 células da coluna do meio
+            meio = colunas // 2
+            linhas_parede = [0, 1, 2, 3]  # cobre 4 das 5 linhas
+            for l in linhas_parede:
+                labirinto.labirinto[l][meio].paredes["cima"] = True
+                labirinto.labirinto[l][meio].paredes["baixo"] = True
+                labirinto.labirinto[l][meio].paredes["esquerda"] = True
+                labirinto.labirinto[l][meio].paredes["direita"] = True
+            # Salva as posições para desenhar os sprites depois
+            parede_sprites = [(l, meio) for l in linhas_parede]
+            labirinto.parede_sprites = parede_sprites
             objetivo_linha = linhas - 1
             objetivo_coluna = colunas - 1
+        else:
+            labirinto.gerar()
+            objetivo_linha = labirinto.ultima_celula.linha
+            objetivo_coluna = labirinto.ultima_celula.coluna
+    else:
+        objetivo_linha = linhas - 1
+        objetivo_coluna = colunas - 1
 
-        camera = cv2.VideoCapture(0)
-        tela, relogio, personagem, largura_terminal = init_jogo(tamanho_celula,linhas,colunas)
-        rodando = True
-        executarMovimento = False
-        indice = 0
-        contador = 0
-        ultima_cor_detectada = None
-        tempo_ultima_detecao = 0
-        cooldown = 1.0  # segundos
+    camera = cv2.VideoCapture(0)
+    tela, relogio, personagem, largura_terminal = init_jogo(tamanho_celula,linhas,colunas)
+    # Controle do modo comando: pausa entre execuções
+    last_command_finished_at = pg.time.get_ticks()
+    command_in_progress = False
 
-        log_terminal = []  # Lista pra armazenar as mensagens do terminal
-        limite_linhas_terminal = 15  # Quantas linhas queremos mostrar
-        fonte_terminal = pg.font.SysFont("Segoe UI Emoji", 16)
+    rodando = True
+    executarMovimento = False
+    contador = 0
+    ultima_cor_detectada = None
+    tempo_ultima_detecao = 0
+    cooldown = 1.0  # segundos
 
-        def adicionar_log(msg):
-            log_terminal.append(msg)
-            if len(log_terminal) > limite_linhas_terminal:
-                log_terminal.pop(0)
+    log_terminal = []  # Lista pra armazenar as mensagens do terminal
+    limite_linhas_terminal = 15  # Quantas linhas queremos mostrar
+    fonte_terminal = pg.font.SysFont("Segoe UI Emoji", 16)
+
+    def adicionar_log(msg):
+        log_terminal.append(msg)
+        if len(log_terminal) > limite_linhas_terminal:
+            log_terminal.pop(0)
+    
+    def desenhar_terminal(tela, largura_terminal, altura_tela, largura_total):
+        x_terminal = largura_total - largura_terminal
+        y_terminal = 0
+        altura_linha = 18
+
+        # Fundo do terminal
+        pg.draw.rect(tela, (30, 30, 30), (x_terminal, y_terminal, largura_terminal, altura_tela))
+
+        # Borda
+        pg.draw.rect(tela, (255, 255, 255), (x_terminal, y_terminal, largura_terminal, altura_tela), 2)
+
+        # Linhas de texto
+        for i, linha in enumerate(log_terminal):
+            texto = fonte_terminal.render(linha, True, (200, 200, 200))
+            tela.blit(texto, (x_terminal + 10, y_terminal + i * altura_linha))
+
+    frame = None
+
+    while rodando:
+        if modo_comando and not executarMovimento:
+            for evento in pg.event.get():
+                if evento.type == pg.QUIT:
+                    rodando = False
+                elif evento.type == pg.KEYDOWN:
+                    if not personagem.em_movimento:
+                        if evento.key == pg.K_LEFT:
+                            personagem.movimento.append("LEFT")
+                            contador += 1
+                            adicionar_log("Detectado: 🔁 ESQUERDA")
+                        if evento.key == pg.K_RIGHT:
+                            personagem.movimento.append("RIGHT")
+                            contador += 1
+                            adicionar_log("Detectado: 🔁 DIREITA")
+                        if evento.key == pg.K_SPACE:
+                            personagem.movimento.append("SPACE")
+                            contador += 1
+                            adicionar_log("Detectado: ⬇️ FRENTE")
+                        if evento.key == pg.K_RETURN:
+                            executarMovimento = True
+            
+            cor_detectada, frame = detectar_cor(camera, intervalos_cores)
+            tempo_atual = time.time()
+
+            # Só adiciona movimento se passou o cooldown OU a cor é diferente da anterior
+            if not personagem.em_movimento:
+                if cor_detectada and (cor_detectada != ultima_cor_detectada or tempo_atual - tempo_ultima_detecao > cooldown):
+                    if cor_detectada == "vermelho":
+                        personagem.movimento.append("LEFT")
+                        contador += 1
+                        adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
+                    elif cor_detectada == "azul":
+                        personagem.movimento.append("RIGHT")
+                        contador += 1
+                        adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
+                    elif cor_detectada == "verde":
+                        personagem.movimento.append("SPACE")
+                        contador += 1
+                        adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
+            if not cor_detectada:
+                ultima_cor_detectada = None
+            # Atualiza histórico
+            ultima_cor_detectada = cor_detectada
+            tempo_ultima_detecao = tempo_atual
+
+            if frame is not None:
+                cv2.imshow("Camera", frame)
+                cv2.waitKey(1)
         
-        def desenhar_terminal(tela, largura_terminal, altura_tela, largura_total):
-            x_terminal = largura_total - largura_terminal
-            y_terminal = 0
-            altura_linha = 18
-
-            # Fundo do terminal
-            pg.draw.rect(tela, (30, 30, 30), (x_terminal, y_terminal, largura_terminal, altura_tela))
-
-            # Borda
-            pg.draw.rect(tela, (255, 255, 255), (x_terminal, y_terminal, largura_terminal, altura_tela), 2)
-
-            # Linhas de texto
-            for i, linha in enumerate(log_terminal):
-                texto = fonte_terminal.render(linha, True, (200, 200, 200))
-                tela.blit(texto, (x_terminal + 10, y_terminal + i * altura_linha))
-
-
-        while rodando:
-            if modo_comando and not executarMovimento:
-                for evento in pg.event.get():
+        elif not modo_comando:
+            for evento in pg.event.get():
+                if not personagem.em_movimento:
                     if evento.type == pg.QUIT:
                         rodando = False
                     elif evento.type == pg.KEYDOWN:
-                        if not personagem.em_movimento:
-                            if evento.key == pg.K_LEFT:
-                                personagem.movimento.append("LEFT")
-                                contador += 1
-                                adicionar_log("Detectado: 🔁 ESQUERDA")
-                                #personagem.girar(90)
-                            if evento.key == pg.K_RIGHT:
-                                personagem.movimento.append("RIGHT")
-                                contador += 1
-                                adicionar_log("Detectado: 🔁 DIREITA")
-                                #personagem.girar(-90)
-                            if evento.key == pg.K_SPACE:
-                                personagem.movimento.append("SPACE")
-                                contador += 1
-                                adicionar_log("Detectado: ⬇️ FRENTE")
-                                #personagem.mover_para_frente(10)
-                            if evento.key == pg.K_RETURN:
-                                executarMovimento = True
-                
-                cor_detectada, frame = detectar_cor(camera, intervalos_cores)
-                tempo_atual = time.time()
-
-                # Só adiciona movimento se passou o cooldown OU a cor é diferente da anterior
-                if not personagem.em_movimento:
-                    if cor_detectada and (cor_detectada != ultima_cor_detectada or tempo_atual - tempo_ultima_detecao > cooldown):
-                        if cor_detectada == "vermelho":
-                            personagem.movimento.append("LEFT")
-                            contador += 1
-                            adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
-                        elif cor_detectada == "azul":
-                            personagem.movimento.append("RIGHT")
-                            contador += 1
-                            adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
-                        elif cor_detectada == "verde":
-                            personagem.movimento.append("SPACE")
-                            contador += 1
-                            adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
-                    if not cor_detectada:
-                        ultima_cor_detectada = None
-                        # Atualiza histórico
-                ultima_cor_detectada = cor_detectada
-                tempo_ultima_detecao = tempo_atual
-
-                if frame is not None:
-                    cv2.imshow("Camera", frame)
-                    cv2.waitKey(1)
-            
-            elif not modo_comando:
-                for evento in pg.event.get():
-                    if not personagem.em_movimento:
-                        if evento.type == pg.QUIT:
-                            rodando = False
-                        elif evento.type == pg.KEYDOWN:
-                            if evento.key == pg.K_LEFT:
-                                personagem.girar_para(90)
-                                contador += 1
-                                adicionar_log("🔁 ESQUERDA")
-                            elif evento.key == pg.K_RIGHT:
-                                personagem.girar_para(-90)
-                                contador += 1
-                                adicionar_log("🔁 DIREITA")
-                            elif evento.key == pg.K_SPACE:
-                                if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
-                                    if not personagem.em_movimento and not personagem.girando and personagem.pode_mover_frente(labirinto, tamanho_celula):
-                                        personagem.iniciar_movimento(tamanho_celula)
-                                        contador += 1
-                                        adicionar_log("⬇️ FRENTE")
-                    
-                
-                cor_detectada, frame = detectar_cor(camera, intervalos_cores)
-                tempo_atual = time.time()
-                if not personagem.em_movimento:
-                    if cor_detectada and (cor_detectada != ultima_cor_detectada or tempo_atual - tempo_ultima_detecao > cooldown):
-                        if cor_detectada == "vermelho":
+                        if evento.key == pg.K_LEFT:
                             personagem.girar_para(90)
                             contador += 1
-                            adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
-                        elif cor_detectada == "azul":
+                            adicionar_log("🔁 ESQUERDA")
+                        elif evento.key == pg.K_RIGHT:
                             personagem.girar_para(-90)
                             contador += 1
-                            adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
-                        elif cor_detectada == "verde":
+                            adicionar_log("🔁 DIREITA")
+                        elif evento.key == pg.K_SPACE:
                             if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
                                 if not personagem.em_movimento and not personagem.girando and personagem.pode_mover_frente(labirinto, tamanho_celula):
-                                        personagem.iniciar_movimento(tamanho_celula)
-                                        contador += 1
-                                        adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
-                                
-                    if not cor_detectada:
-                        ultima_cor_detectada = None
-                        # Atualiza histórico
-                    ultima_cor_detectada = cor_detectada
-                    tempo_ultima_detecao = tempo_atual
-
-                if frame is not None:
-                    cv2.imshow("Camera", frame)
-                    cv2.waitKey(1)
-
-
-            else:
-                if not personagem.girando and not personagem.em_movimento:
-                    if personagem.movimento:
-                        if tempo_atual - tempo_ultimo_movimento >= delay_entre_movimentos:
-                            comando = personagem.movimento.popleft()
-                            if comando == "LEFT":
-                                personagem.girar_para(90)
-                            elif comando == "RIGHT":
-                                personagem.girar_para(-90)
-                            elif comando == "SPACE":
-                                if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
                                     personagem.iniciar_movimento(tamanho_celula)
-                    else:
-                        executarMovimento = False
+                                    contador += 1
+                                    adicionar_log("⬇️ FRENTE")
             
+            
+            cor_detectada, frame = detectar_cor(camera, intervalos_cores)
+            tempo_atual = time.time()
+            if not personagem.em_movimento:
+                if cor_detectada and (cor_detectada != ultima_cor_detectada or tempo_atual - tempo_ultima_detecao > cooldown):
+                    if cor_detectada == "vermelho":
+                        personagem.girar_para(90)
+                        contador += 1
+                        adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
+                    elif cor_detectada == "azul":
+                        personagem.girar_para(-90)
+                        contador += 1
+                        adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
+                    elif cor_detectada == "verde":
+                        if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
+                            if not personagem.em_movimento and not personagem.girando and personagem.pode_mover_frente(labirinto, tamanho_celula):
+                                personagem.iniciar_movimento(tamanho_celula)
+                                contador += 1
+                                adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
+                        
+            if not cor_detectada:
+                ultima_cor_detectada = None
+                # Atualiza histórico
+            ultima_cor_detectada = cor_detectada
+            tempo_ultima_detecao = tempo_atual
 
-            tela.fill(cordatela)
+            if frame is not None:
+                cv2.imshow("Camera", frame)
+                cv2.waitKey(1)
 
-            altura_terminal = 100  # ou o valor que tu estiver usando
 
-            # Linhas horizontais
-            for i in range(linhas + 1):
-                y = i * tamanho_celula
-                pg.draw.line(tela, (211, 211, 211), (0, y), (colunas * tamanho_celula, y), 1)
+        else:
+            # Execução com pausas no modo comando
+            now_ticks = pg.time.get_ticks()
+            # Detecta término do comando atual
+            if command_in_progress and not personagem.girando and not personagem.em_movimento:
+                command_in_progress = False
+                last_command_finished_at = now_ticks
 
-            # Linhas verticais
-            for j in range(colunas + 1):
-                x = j * tamanho_celula
-                pg.draw.line(tela, (211, 211, 211), (x, 0), (x, linhas * tamanho_celula), 1)
-
-            if not modo_muito_facil:
-                if len(valores) == 4 and valores[3] == "facil":
-                    sprite_parede = pg.image.load("C:\\Users\\João Melo\\Documents\\robo\\docs\\assets\\parede.png").convert_alpha()
-                    sprite_parede = pg.transform.scale(sprite_parede, (tamanho_celula, tamanho_celula))
-                    labirinto.desenhar(tela, tamanho_celula, desenhar_linhas_guia=False, sprite_parede=sprite_parede)
+            if not command_in_progress and not personagem.girando and not personagem.em_movimento:
+                if personagem.movimento:
+                    # aguarda a pausa entre comandos
+                    if now_ticks - last_command_finished_at >= delay_entre_movimentos:
+                        comando = personagem.movimento.popleft()
+                        if comando == "LEFT":
+                            personagem.girar_para(90)
+                            command_in_progress = True
+                        elif comando == "RIGHT":
+                            personagem.girar_para(-90)
+                            command_in_progress = True
+                        elif comando == "SPACE":
+                            if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
+                                personagem.iniciar_movimento(tamanho_celula)
+                                command_in_progress = True
+                            else:
+                                # movimento inválido: impõe pausa e segue para o próximo
+                                last_command_finished_at = now_ticks
                 else:
-                    labirinto.desenhar(tela, tamanho_celula, desenhar_linhas_guia=True)
-            x_obj = objetivo_coluna * tamanho_celula + tamanho_celula // 4
-            y_obj = objetivo_linha * tamanho_celula + tamanho_celula // 4
-            tamanho_objetivo = tamanho_celula // 2
+                    executarMovimento = False
+        
 
-            pg.draw.rect(tela, (0, 255, 0), (x_obj, y_obj, tamanho_objetivo, tamanho_objetivo))
-            personagem.desenhar(tela)
-            desenhar_terminal(tela, largura_terminal, tela.get_height(), tela.get_width())
+        tela.fill(cordatela)
 
-            col_atual = int(personagem.x // tamanho_celula)
-            lin_atual = int(personagem.y // tamanho_celula)
+        altura_terminal = 100  # ou o valor que tu estiver usando
 
-            if col_atual == objetivo_coluna and lin_atual == objetivo_linha:
-                rodando = False
+        # Linhas horizontais
+        for i in range(linhas + 1):
+            y = i * tamanho_celula
+            pg.draw.line(tela, (211, 211, 211), (0, y), (colunas * tamanho_celula, y), 1)
 
-            personagem.atualizar_rotacao()
-            personagem.atualizar_movimento()
+        # Linhas verticais
+        for j in range(colunas + 1):
+            x = j * tamanho_celula
+            pg.draw.line(tela, (211, 211, 211), (x, 0), (x, linhas * tamanho_celula), 1)
 
-            texto = fonte_terminal.render("Movimentos: " + str(contador), True, (200,200,200))
-            tela.blit(texto,(10,10))
+        if not modo_muito_facil:
+            if len(valores) == 4 and valores[3] == "facil":
+                sprite_parede = pg.image.load("C:\\Users\\João Melo\\Documents\\robo\\docs\\assets\\parede.png").convert_alpha()
+                sprite_parede = pg.transform.scale(sprite_parede, (tamanho_celula, tamanho_celula))
+                labirinto.desenhar(tela, tamanho_celula, desenhar_linhas_guia=False, sprite_parede=sprite_parede)
+            else:
+                labirinto.desenhar(tela, tamanho_celula, desenhar_linhas_guia=True)
+        x_obj = objetivo_coluna * tamanho_celula + tamanho_celula // 4
+        y_obj = objetivo_linha * tamanho_celula + tamanho_celula // 4
+        tamanho_objetivo = tamanho_celula // 2
 
-            pg.display.update()
+        pg.draw.rect(tela, (0, 255, 0), (x_obj, y_obj, tamanho_objetivo, tamanho_objetivo))
+        personagem.desenhar(tela)
+        desenhar_terminal(tela, largura_terminal, tela.get_height(), tela.get_width())
+
+        col_atual = int(personagem.x // tamanho_celula)
+        lin_atual = int(personagem.y // tamanho_celula)
+
+        if col_atual == objetivo_coluna and lin_atual == objetivo_linha:
+            rodando = False
+
+        personagem.atualizar_rotacao()
+        personagem.atualizar_movimento()
+
+        texto = fonte_terminal.render("Movimentos: " + str(contador), True, (200,200,200))
+        tela.blit(texto,(10,10))
+
+        pg.display.update()
+        if frame is not None:
             cv2.imshow("Camera", frame)
             cv2.waitKey(1)
-            relogio.tick(FPS)
+        relogio.tick(FPS)
 
-        pg.quit()
-        camera.release()
-        cv2.destroyAllWindows()
-        sys.exit()
+    pg.quit()
+    camera.release()
+    cv2.destroyAllWindows()
+    sys.exit()
 
 if __name__ == "__main__":
     main()

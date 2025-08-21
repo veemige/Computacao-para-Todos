@@ -1,5 +1,13 @@
-#Projeto Computação para Todos, objetivo: popularização do pensamento computacional
-#Demonstração de algoritmos de forma lúdica, forma interativa
+"""
+Projeto Computação para Todos — demonstração lúdica e interativa de algoritmos.
+
+Este arquivo contém o jogo principal com geração de labirinto, detecção de cores
+via OpenCV, renderização com Pygame e uma UI inicial em Tkinter para escolher
+modo e dificuldade. O objetivo é manter o código acessível e bem comentado, sem
+alterar o comportamento atual.
+"""
+
+# Demonstração de algoritmos de forma lúdica, forma interativa
 import numpy as np
 import pygame as pg
 import cv2
@@ -10,18 +18,34 @@ import time
 import tkinter as tk
 from collections import deque
 
+# ==============================
+# Configurações e Constantes
+# ==============================
 HEIGHT = 500
 WIDTH = 700
 FPS = 60
 
-cordatela = (100,103,97)
-intervalos_cores = {
+# Cor de fundo da área do labirinto
+COR_TELA = (100, 103, 97)
+
+# Mostrar janela da câmera (pode desativar se interferir no Pygame)
+SHOW_CAMERA = True
+
+# Intervalos HSV para detecção de cores (OpenCV usa HSV em BGR→HSV)
+INTERVALOS_CORES = {
     "vermelho": ((0, 120, 70), (10, 255, 255)),
     "azul": ((100, 180, 50), (130, 255, 255)),
     "verde": ((40, 70, 70), (90, 255, 255))
 }
 
 def escolher_dificuldade_tkinter():
+    """Abre uma pequena janela Tkinter para selecionar dificuldade e tipo de movimento.
+
+    Retorna:
+        tuple: (valores, tipo_movimento)
+            - valores: (linhas, colunas, tamanho_celula[, tag])
+            - tipo_movimento: "comando" ou "direto"
+    """
     dificuldade = {"valores": None, "tipo_movimento": None}
 
     def selecionar(valores, tipo_movimento):
@@ -66,6 +90,16 @@ def escolher_dificuldade_tkinter():
 
 
 def detectar_cor(camera, intervalos_cores, roi_tamanho=(200, 200)):
+    """Detecta uma das cores configuradas no centro do frame da câmera.
+
+    Args:
+        camera: objeto de captura do OpenCV.
+        intervalos_cores (dict): mapa {nome_cor: (hsv_min, hsv_max)}.
+        roi_tamanho (tuple): largura, altura da região central analisada.
+
+    Retorna:
+        (str|None, ndarray|None): nome da cor detectada ou None, e o frame bruto.
+    """
     ret, frame = camera.read()
     if not ret:
         return None, None
@@ -103,6 +137,7 @@ def detectar_cor(camera, intervalos_cores, roi_tamanho=(200, 200)):
 
 
 class Celula:
+    """Uma célula do labirinto com paredes nas quatro direções."""
     def __init__(self, linha, coluna):
         self.linha = linha
         self.coluna = coluna
@@ -115,12 +150,14 @@ class Celula:
         }
 
 class GeradorLabirinto:
+    """Gera e desenha um labirinto usando DFS com backtracking."""
     def __init__(self, linhas, colunas):
         self.linhas = linhas
         self.colunas = colunas
         self.labirinto = [[Celula(l, c) for c in range(colunas)] for l in range(linhas)]
 
     def pegar_vizinhos(self, celula):
+        """Retorna vizinhos não visitados com a direção relativa."""
         vizinhos = []
         l, c = celula.linha, celula.coluna
 
@@ -147,6 +184,7 @@ class GeradorLabirinto:
         return vizinhos
 
     def remover_parede(self, atual, vizinho, direcao):
+        """Remove pared(es) entre duas células adjacentes."""
         opostos = {
             "cima": "baixo",
             "baixo": "cima",
@@ -158,6 +196,7 @@ class GeradorLabirinto:
         vizinho.paredes[opostos[direcao]] = False
 
     def encontrar_celula_distante(self, min_distancia):
+        """Seleciona uma célula distante o suficiente da origem (0,0)."""
         inicio = self.labirinto[0][0]
         max_dist = 0
         mais_distante = inicio
@@ -173,6 +212,7 @@ class GeradorLabirinto:
         return mais_distante
 
     def gerar(self):
+        """Gera o labirinto via DFS/backtracking e define a última célula-alvo."""
         pilha = []
         atual = self.labirinto[0][0]
         atual.visitada = True
@@ -196,6 +236,10 @@ class GeradorLabirinto:
         self.ultima_celula = self.encontrar_celula_distante(min_distancia=8)
 
     def desenhar(self, tela, tamanho_celula, desenhar_linhas_guia=True, sprite_parede=None):
+        """Desenha as paredes e, opcionalmente, linhas guia amarelas.
+
+        No modo fácil pode receber um sprite para paredes especiais.
+        """
         for l in range(self.linhas):
             for c in range(self.colunas):
                 x = c * tamanho_celula
@@ -305,6 +349,7 @@ class GeradorLabirinto:
 
 
 class Personagem:
+    """Representa o robô: rotação, movimento e renderização."""
     def __init__(self, caminho_imagem, x, y, larguraP, alturaP):
         self.imagem_original = pg.image.load(caminho_imagem).convert_alpha()
         self.imagem_original = pg.transform.scale(self.imagem_original, (larguraP, alturaP))
@@ -312,6 +357,7 @@ class Personagem:
         self.x = x
         self.y = y
         self.movimento = deque()
+        # Variáveis legadas não utilizadas (mantidas para compatibilidade)
         tempo_ultimo_movimento = 0
         delay_entre_movimentos = 200
         self.velocidade = 15  # pixels por frame
@@ -323,16 +369,19 @@ class Personagem:
         self.girando = False
 
     def girar_para(self, graus):
+        """Agenda uma rotação incremental até o ângulo alvo."""
         if not self.girando:
             self.angulo_desejado = (self.angulo_atual + graus) % 360
             self.girando = True
 
 
     def desenhar(self, tela):
+        """Desenha o sprite do personagem no centro atual."""
         rect = self.imagem.get_rect(center=(self.x, self.y))
         tela.blit(self.imagem, rect.topleft)
 
     def iniciar_movimento(self, distancia):
+        """Inicia um movimento reto de 'distancia' pixels na direção atual."""
         if not self.em_movimento:
             self.distancia_restante = distancia
             self.em_movimento = True
@@ -340,6 +389,7 @@ class Personagem:
         tempo_ultimo_movimento = pg.time.get_ticks()
 
     def atualizar_movimento(self):
+        """Atualiza a translação por frame até consumir a distância."""
         if self.em_movimento:
             passo = min(self.velocidade, self.distancia_restante)
             dx = math.cos(math.radians(self.angulo_atual)) * passo
@@ -351,6 +401,7 @@ class Personagem:
                 self.em_movimento = False
     
     def atualizar_rotacao(self):
+        """Interpola a rotação até atingir o ângulo desejado e atualiza o sprite."""
         if self.girando:
             diff = (self.angulo_desejado - self.angulo_atual) % 360
             if diff > 180:
@@ -372,6 +423,7 @@ class Personagem:
             self.imagem = pg.transform.rotate(self.imagem_original, self.angulo_atual)
 
     def pode_mover_frente(self, labirinto, tamanho_celula):
+        """Verifica colisão com paredes, baseado no ângulo cardinal atual."""
         # Determina a célula atual
         coluna = int(self.x // tamanho_celula)
         linha = int(self.y // tamanho_celula)
@@ -395,7 +447,8 @@ class Personagem:
         return False  # ângulo inválido
 
 
-def init_jogo(tamanho_celula,linhas,colunas):
+def init_jogo(tamanho_celula, linhas, colunas):
+    """Inicializa Pygame, janela e personagem. Retorna (tela, relógio, personagem, largura_terminal)."""
     pg.init()
     largura_labirinto = colunas * tamanho_celula
     largura_terminal = 300  # Largura da "extensão" lateral
@@ -405,12 +458,19 @@ def init_jogo(tamanho_celula,linhas,colunas):
     pg.display.set_caption("ROBO")
     relogio = pg.time.Clock()
 
-    personagem = Personagem("C:\\Users\\João Melo\\Documents\\robo\\docs\\assets\\carro.png", tamanho_celula // 2, tamanho_celula // 2,tamanho_celula*2,tamanho_celula*2)
+    personagem = Personagem(
+        "C:\\Users\\João Melo\\Documents\\robo\\docs\\assets\\carro.png",
+        tamanho_celula // 2,
+        tamanho_celula // 2,
+        tamanho_celula * 2,
+        tamanho_celula * 2,
+    )
 
     return tela, relogio, personagem, largura_terminal
 
 
 def main():
+    """Loop principal: entrada, geração do labirinto, renderização e lógica de jogo."""
     valores,tipo_movimento = escolher_dificuldade_tkinter()
     modo_comando = tipo_movimento == "comando"
     delay_entre_movimentos = 500  # ms de pausa entre comandos executados no modo comando
@@ -464,7 +524,8 @@ def main():
         objetivo_coluna = colunas - 1
 
     camera = cv2.VideoCapture(0)
-    tela, relogio, personagem, largura_terminal = init_jogo(tamanho_celula,linhas,colunas)
+    camera_ok = camera.isOpened()
+    tela, relogio, personagem, largura_terminal = init_jogo(tamanho_celula, linhas, colunas)
     # Controle do modo comando: pausa entre execuções
     last_command_finished_at = pg.time.get_ticks()
     command_in_progress = False
@@ -525,7 +586,7 @@ def main():
                         if evento.key == pg.K_RETURN:
                             executarMovimento = True
             
-            cor_detectada, frame = detectar_cor(camera, intervalos_cores)
+            cor_detectada, frame = detectar_cor(camera, INTERVALOS_CORES)
             tempo_atual = time.time()
 
             # Só adiciona movimento se passou o cooldown OU a cor é diferente da anterior
@@ -549,7 +610,7 @@ def main():
             ultima_cor_detectada = cor_detectada
             tempo_ultima_detecao = tempo_atual
 
-            if frame is not None:
+            if SHOW_CAMERA and camera_ok and frame is not None:
                 cv2.imshow("Camera", frame)
                 cv2.waitKey(1)
         
@@ -575,7 +636,7 @@ def main():
                                     adicionar_log("⬇️ FRENTE")
             
             
-            cor_detectada, frame = detectar_cor(camera, intervalos_cores)
+            cor_detectada, frame = detectar_cor(camera, INTERVALOS_CORES)
             tempo_atual = time.time()
             if not personagem.em_movimento:
                 if cor_detectada and (cor_detectada != ultima_cor_detectada or tempo_atual - tempo_ultima_detecao > cooldown):
@@ -600,13 +661,18 @@ def main():
             ultima_cor_detectada = cor_detectada
             tempo_ultima_detecao = tempo_atual
 
-            if frame is not None:
+            if SHOW_CAMERA and camera_ok and frame is not None:
                 cv2.imshow("Camera", frame)
                 cv2.waitKey(1)
 
 
         else:
             # Execução com pausas no modo comando
+            # Garante processamento mínimo de eventos para manter a janela responsiva
+            for evento in pg.event.get():
+                if evento.type == pg.QUIT:
+                    rodando = False
+                    break
             now_ticks = pg.time.get_ticks()
             # Detecta término do comando atual
             if command_in_progress and not personagem.girando and not personagem.em_movimento:
@@ -635,7 +701,11 @@ def main():
                     executarMovimento = False
         
 
-        tela.fill(cordatela)
+        # Garante que o SDL processe a fila de eventos a cada frame
+        pg.event.pump()
+
+        # Fundo do painel principal (área do labirinto)
+        tela.fill(COR_TELA)
 
         altura_terminal = 100  # ou o valor que tu estiver usando
 
@@ -676,10 +746,11 @@ def main():
         texto = fonte_terminal.render("Movimentos: " + str(contador), True, (200,200,200))
         tela.blit(texto,(10,10))
 
-        pg.display.update()
-        if frame is not None:
+        pg.display.flip()
+        if SHOW_CAMERA and camera_ok and frame is not None:
             cv2.imshow("Camera", frame)
             cv2.waitKey(1)
+
         relogio.tick(FPS)
 
     pg.quit()

@@ -16,7 +16,8 @@ import sys
 import math
 import time
 import tkinter as tk
-from collections import deque
+from collections import deque, Counter
+import os
 
 # ==============================
 # Configurações e Constantes
@@ -31,12 +32,23 @@ COR_TELA = (100, 103, 97)
 # Mostrar janela da câmera (pode desativar se interferir no Pygame)
 SHOW_CAMERA = True
 
-# Intervalos HSV para detecção de cores (OpenCV usa HSV em BGR→HSV)
-INTERVALOS_CORES = {
-    "vermelho": ((0, 120, 70), (10, 255, 255)),
-    "azul": ((100, 180, 50), (130, 255, 255)),
-    "verde": ((40, 70, 70), (90, 255, 255))
+# Configuração fixa de detecção (HSV, ROI, filtros) com parâmetros robustos
+HSV_RANGES = {
+    "vermelho": {"lower": [0, 120, 70], "upper": [10, 255, 255]},
+    "azul": {"lower": [100, 180, 50], "upper": [130, 255, 255]},
+    "verde": {"lower": [40, 70, 70], "upper": [90, 255, 255]},
 }
+ROI_W, ROI_H = 220, 220
+BLUR = 5           # ímpar >=3; 0/1 desativa
+ERODE_IT = 1
+DILATE_IT = 1
+# Histerese por área: ON para disparar, OFF para sumir
+AREA_MIN_ON = 2600
+AREA_MIN_OFF = 1800
+# Estabilidade de decisão
+DETECT_RECENT_LEN = 7
+DETECT_MAJORITY_MIN = 4
+DETECT_REFRACTORY_SEC = 0.7
 
 def escolher_dificuldade_tkinter():
     """Abre uma pequena janela Tkinter para selecionar dificuldade e tipo de movimento.
@@ -89,23 +101,18 @@ def escolher_dificuldade_tkinter():
     return dificuldade["valores"], dificuldade["tipo_movimento"]
 
 
-def detectar_cor(camera, intervalos_cores, roi_tamanho=(200, 200)):
-    """Detecta uma das cores configuradas no centro do frame da câmera.
+def detectar_cor(camera):
+    """Detecta uma das cores configuradas no centro do frame da câmera, com filtros.
 
-    Args:
-        camera: objeto de captura do OpenCV.
-        intervalos_cores (dict): mapa {nome_cor: (hsv_min, hsv_max)}.
-        roi_tamanho (tuple): largura, altura da região central analisada.
-
-    Retorna:
-        (str|None, ndarray|None): nome da cor detectada ou None, e o frame bruto.
+    Usa blur e morfologia (erode/dilate) e valida por área mínima.
     """
     ret, frame = camera.read()
     if not ret:
         return None, None
 
     altura, largura, _ = frame.shape
-    w, h = roi_tamanho
+    w = int(ROI_W)
+    h = int(ROI_H)
 
     # Calcula o centro da imagem
     centro_x = largura // 2
@@ -118,17 +125,46 @@ def detectar_cor(camera, intervalos_cores, roi_tamanho=(200, 200)):
     y2 = centro_y + h // 2
 
     roi = frame[y1:y2, x1:x2]
-    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    # Pré-processamento
+    proc = roi.copy()
+    blur_k = int(BLUR)
+    if blur_k and blur_k % 2 == 1 and blur_k >= 3:
+        proc = cv2.GaussianBlur(proc, (blur_k, blur_k), 0)
+    hsv = cv2.cvtColor(proc, cv2.COLOR_BGR2HSV)
 
-    for cor, (lower, upper) in intervalos_cores.items():
-        lower_np = np.array(lower)
-        upper_np = np.array(upper)
+    erode_it = int(ERODE_IT)
+    dilate_it = int(DILATE_IT)
+
+    best_cor = None
+    best_area = 0
+    for cor, rng in HSV_RANGES.items():
+        lower_np = np.array(rng.get("lower", [0, 0, 0]))
+        upper_np = np.array(rng.get("upper", [179, 255, 255]))
 
         mask = cv2.inRange(hsv, lower_np, upper_np)
-        contornos, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        if erode_it > 0:
+            mask = cv2.erode(mask, None, iterations=erode_it)
+        if dilate_it > 0:
+            mask = cv2.dilate(mask, None, iterations=dilate_it)
 
-        if contornos and cv2.contourArea(max(contornos, key=cv2.contourArea)) > 2000:
-            return cor, frame  # Cor detectada na ROI
+        contornos, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        if contornos:
+            area = cv2.contourArea(max(contornos, key=cv2.contourArea))
+            if area > best_area:
+                best_area = area
+                best_cor = cor
+
+    # Aplica limiar de histerese para evitar flicker
+    if best_area >= AREA_MIN_ON:
+        cor_final = best_cor
+    elif best_area >= AREA_MIN_OFF and best_cor is not None:
+        cor_final = best_cor  # mantém enquanto acima de OFF
+    else:
+        cor_final = None
+
+    # Desenha ROI para visualização
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+    return cor_final, frame
 
     # Desenha um retângulo na imagem original (só visual)
     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
@@ -137,7 +173,6 @@ def detectar_cor(camera, intervalos_cores, roi_tamanho=(200, 200)):
 
 
 class Celula:
-    """Uma célula do labirinto com paredes nas quatro direções."""
     def __init__(self, linha, coluna):
         self.linha = linha
         self.coluna = coluna
@@ -146,7 +181,7 @@ class Celula:
             "cima": True,
             "baixo": True,
             "esquerda": True,
-            "direita": True
+            "direita": True,
         }
 
 class GeradorLabirinto:
@@ -454,7 +489,7 @@ def init_jogo(tamanho_celula, linhas, colunas):
     largura_terminal = 300  # Largura da "extensão" lateral
     largura = largura_labirinto + largura_terminal
     altura = linhas * tamanho_celula
-    tela = pg.display.set_mode((largura, altura))
+    tela = pg.display.set_mode((largura, altura), pg.RESIZABLE)
     pg.display.set_caption("ROBO")
     relogio = pg.time.Clock()
 
@@ -525,7 +560,16 @@ def main():
 
     camera = cv2.VideoCapture(0)
     camera_ok = camera.isOpened()
+    if SHOW_CAMERA and camera_ok:
+        # Janela redimensionável para permitir maximizar
+        try:
+            cv2.namedWindow("Camera", cv2.WINDOW_NORMAL)
+        except Exception:
+            pass
     tela, relogio, personagem, largura_terminal = init_jogo(tamanho_celula, linhas, colunas)
+    # Estado do detector robusto
+    recentes = deque(maxlen=DETECT_RECENT_LEN)
+    ultimo_disparo = 0.0
     # Controle do modo comando: pausa entre execuções
     last_command_finished_at = pg.time.get_ticks()
     command_in_progress = False
@@ -535,7 +579,7 @@ def main():
     contador = 0
     ultima_cor_detectada = None
     tempo_ultima_detecao = 0
-    cooldown = 1.0  # segundos
+    cooldown = 0.0  # usando período refratário
 
     log_terminal = []  # Lista pra armazenar as mensagens do terminal
     limite_linhas_terminal = 15  # Quantas linhas queremos mostrar
@@ -569,6 +613,9 @@ def main():
             for evento in pg.event.get():
                 if evento.type == pg.QUIT:
                     rodando = False
+                elif evento.type == pg.VIDEORESIZE:
+                    # Atualiza tamanho da janela mantendo o modo redimensionável
+                    tela = pg.display.set_mode((evento.w, evento.h), pg.RESIZABLE)
                 elif evento.type == pg.KEYDOWN:
                     if not personagem.em_movimento:
                         if evento.key == pg.K_LEFT:
@@ -585,27 +632,32 @@ def main():
                             adicionar_log("Detectado: ⬇️ FRENTE")
                         if evento.key == pg.K_RETURN:
                             executarMovimento = True
-            
-            cor_detectada, frame = detectar_cor(camera, INTERVALOS_CORES)
+            cor_detectada, frame = detectar_cor(camera)
             tempo_atual = time.time()
 
             # Só adiciona movimento se passou o cooldown OU a cor é diferente da anterior
             if not personagem.em_movimento:
-                if cor_detectada and (cor_detectada != ultima_cor_detectada or tempo_atual - tempo_ultima_detecao > cooldown):
-                    if cor_detectada == "vermelho":
-                        personagem.movimento.append("LEFT")
-                        contador += 1
-                        adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
-                    elif cor_detectada == "azul":
-                        personagem.movimento.append("RIGHT")
-                        contador += 1
-                        adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
-                    elif cor_detectada == "verde":
-                        personagem.movimento.append("SPACE")
-                        contador += 1
-                        adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
-            if not cor_detectada:
-                ultima_cor_detectada = None
+                recentes.append(cor_detectada if cor_detectada else "_")
+                if tempo_atual - ultimo_disparo >= DETECT_REFRACTORY_SEC and len(recentes) == DETECT_RECENT_LEN:
+                    cont = Counter([c for c in recentes if c != "_"])
+                    if cont:
+                        cor_maj, votos = cont.most_common(1)[0]
+                        if votos >= DETECT_MAJORITY_MIN:
+                            if cor_maj == "vermelho":
+                                personagem.movimento.append("LEFT")
+                                contador += 1
+                                adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
+                                ultimo_disparo = tempo_atual
+                            elif cor_maj == "azul":
+                                personagem.movimento.append("RIGHT")
+                                contador += 1
+                                adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
+                                ultimo_disparo = tempo_atual
+                            elif cor_maj == "verde":
+                                personagem.movimento.append("SPACE")
+                                contador += 1
+                                adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
+                                ultimo_disparo = tempo_atual
             # Atualiza histórico
             ultima_cor_detectada = cor_detectada
             tempo_ultima_detecao = tempo_atual
@@ -616,10 +668,12 @@ def main():
         
         elif not modo_comando:
             for evento in pg.event.get():
-                if not personagem.em_movimento:
-                    if evento.type == pg.QUIT:
-                        rodando = False
-                    elif evento.type == pg.KEYDOWN:
+                if evento.type == pg.QUIT:
+                    rodando = False
+                elif evento.type == pg.VIDEORESIZE:
+                    tela = pg.display.set_mode((evento.w, evento.h), pg.RESIZABLE)
+                elif evento.type == pg.KEYDOWN:
+                    if not personagem.em_movimento:
                         if evento.key == pg.K_LEFT:
                             personagem.girar_para(90)
                             contador += 1
@@ -634,30 +688,33 @@ def main():
                                     personagem.iniciar_movimento(tamanho_celula)
                                     contador += 1
                                     adicionar_log("⬇️ FRENTE")
-            
-            
-            cor_detectada, frame = detectar_cor(camera, INTERVALOS_CORES)
+            cor_detectada, frame = detectar_cor(camera)
             tempo_atual = time.time()
             if not personagem.em_movimento:
-                if cor_detectada and (cor_detectada != ultima_cor_detectada or tempo_atual - tempo_ultima_detecao > cooldown):
-                    if cor_detectada == "vermelho":
-                        personagem.girar_para(90)
-                        contador += 1
-                        adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
-                    elif cor_detectada == "azul":
-                        personagem.girar_para(-90)
-                        contador += 1
-                        adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
-                    elif cor_detectada == "verde":
-                        if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
-                            if not personagem.em_movimento and not personagem.girando and personagem.pode_mover_frente(labirinto, tamanho_celula):
-                                personagem.iniciar_movimento(tamanho_celula)
+                recentes.append(cor_detectada if cor_detectada else "_")
+                if tempo_atual - ultimo_disparo >= DETECT_REFRACTORY_SEC and len(recentes) == DETECT_RECENT_LEN:
+                    cont = Counter([c for c in recentes if c != "_"])
+                    if cont:
+                        cor_maj, votos = cont.most_common(1)[0]
+                        if votos >= DETECT_MAJORITY_MIN:
+                            if cor_maj == "vermelho":
+                                personagem.girar_para(90)
                                 contador += 1
-                                adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
-                        
-            if not cor_detectada:
-                ultima_cor_detectada = None
-                # Atualiza histórico
+                                adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
+                                ultimo_disparo = tempo_atual
+                            elif cor_maj == "azul":
+                                personagem.girar_para(-90)
+                                contador += 1
+                                adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
+                                ultimo_disparo = tempo_atual
+                            elif cor_maj == "verde":
+                                if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
+                                    if not personagem.em_movimento and not personagem.girando and personagem.pode_mover_frente(labirinto, tamanho_celula):
+                                        personagem.iniciar_movimento(tamanho_celula)
+                                        contador += 1
+                                        adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
+                                        ultimo_disparo = tempo_atual
+            # Atualiza histórico
             ultima_cor_detectada = cor_detectada
             tempo_ultima_detecao = tempo_atual
 
@@ -672,7 +729,9 @@ def main():
             for evento in pg.event.get():
                 if evento.type == pg.QUIT:
                     rodando = False
-                    break
+                elif evento.type == pg.VIDEORESIZE:
+                    tela = pg.display.set_mode((evento.w, evento.h), pg.RESIZABLE)
+                # sem F1/calibração
             now_ticks = pg.time.get_ticks()
             # Detecta término do comando atual
             if command_in_progress and not personagem.girando and not personagem.em_movimento:
@@ -707,8 +766,6 @@ def main():
         # Fundo do painel principal (área do labirinto)
         tela.fill(COR_TELA)
 
-        altura_terminal = 100  # ou o valor que tu estiver usando
-
         # Linhas horizontais
         for i in range(linhas + 1):
             y = i * tamanho_celula
@@ -726,6 +783,7 @@ def main():
                 labirinto.desenhar(tela, tamanho_celula, desenhar_linhas_guia=False, sprite_parede=sprite_parede)
             else:
                 labirinto.desenhar(tela, tamanho_celula, desenhar_linhas_guia=True)
+
         x_obj = objetivo_coluna * tamanho_celula + tamanho_celula // 4
         y_obj = objetivo_linha * tamanho_celula + tamanho_celula // 4
         tamanho_objetivo = tamanho_celula // 2

@@ -494,7 +494,7 @@ def init_jogo(tamanho_celula, linhas, colunas):
     relogio = pg.time.Clock()
 
     personagem = Personagem(
-        "C:\\Users\\João Melo\\Documents\\robo\\docs\\assets\\carro.png",
+        "docs/assets/carro.png",
         tamanho_celula // 2,
         tamanho_celula // 2,
         tamanho_celula * 2,
@@ -778,7 +778,7 @@ def main():
 
         if not modo_muito_facil:
             if len(valores) == 4 and valores[3] == "facil":
-                sprite_parede = pg.image.load("C:\\Users\\João Melo\\Documents\\robo\\docs\\assets\\parede.png").convert_alpha()
+                sprite_parede = pg.image.load("docs/assets/parede.png").convert_alpha()
                 sprite_parede = pg.transform.scale(sprite_parede, (tamanho_celula, tamanho_celula))
                 labirinto.desenhar(tela, tamanho_celula, desenhar_linhas_guia=False, sprite_parede=sprite_parede)
             else:

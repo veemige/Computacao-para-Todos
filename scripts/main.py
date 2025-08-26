@@ -49,6 +49,7 @@ AREA_MIN_OFF = 1800
 DETECT_RECENT_LEN = 7
 DETECT_MAJORITY_MIN = 4
 DETECT_REFRACTORY_SEC = 0.7
+DETECT_EVERY_N = 2  # roda detecção a cada N frames
 
 def escolher_dificuldade_tkinter():
     """Abre uma pequena janela Tkinter para selecionar dificuldade e tipo de movimento.
@@ -504,6 +505,27 @@ def init_jogo(tamanho_celula, linhas, colunas):
     return tela, relogio, personagem, largura_terminal
 
 
+def build_grid_surface(linhas, colunas, tamanho_celula):
+    """Pré-renderiza a grade (linhas cinza) em uma Surface transparente."""
+    surf = pg.Surface((colunas * tamanho_celula, linhas * tamanho_celula), pg.SRCALPHA)
+    # Linhas horizontais
+    for i in range(linhas + 1):
+        y = i * tamanho_celula
+        pg.draw.line(surf, (211, 211, 211), (0, y), (colunas * tamanho_celula, y), 1)
+    # Linhas verticais
+    for j in range(colunas + 1):
+        x = j * tamanho_celula
+        pg.draw.line(surf, (211, 211, 211), (x, 0), (x, linhas * tamanho_celula), 1)
+    return surf
+
+
+def build_maze_surface(labirinto, tamanho_celula, is_facil, sprite_parede):
+    """Pré-renderiza o labirinto (paredes e, se aplicável, sprites)."""
+    surf = pg.Surface((labirinto.colunas * tamanho_celula, labirinto.linhas * tamanho_celula), pg.SRCALPHA)
+    labirinto.desenhar(surf, tamanho_celula, desenhar_linhas_guia=(not is_facil), sprite_parede=sprite_parede)
+    return surf
+
+
 def main():
     """Loop principal: entrada, geração do labirinto, renderização e lógica de jogo."""
     valores,tipo_movimento = escolher_dificuldade_tkinter()
@@ -548,15 +570,27 @@ def main():
             # Salva as posições para desenhar os sprites depois
             parede_sprites = [(l, meio) for l in linhas_parede]
             labirinto.parede_sprites = parede_sprites
-            objetivo_linha = linhas - 1
-            objetivo_coluna = colunas - 1
+            # Define objetivo aleatório nas colunas 4 e 5 (índices 3 e 4)
+            cols_alvo = [c for c in (3, 4) if c < colunas]
+            opcoes = [(l, c) for l in range(linhas) for c in cols_alvo]
+            if opcoes:
+                objetivo_linha, objetivo_coluna = random.choice(opcoes)
+            else:
+                objetivo_linha = linhas - 1
+                objetivo_coluna = colunas - 1
         else:
             labirinto.gerar()
             objetivo_linha = labirinto.ultima_celula.linha
             objetivo_coluna = labirinto.ultima_celula.coluna
     else:
-        objetivo_linha = linhas - 1
-        objetivo_coluna = colunas - 1
+        # Modo muito fácil: objetivo aleatório nas colunas 4 e 5 (índices 3 e 4)
+        cols_alvo = [c for c in (3, 4) if c < colunas]
+        opcoes = [(l, c) for l in range(linhas) for c in cols_alvo]
+        if opcoes:
+            objetivo_linha, objetivo_coluna = random.choice(opcoes)
+        else:
+            objetivo_linha = linhas - 1
+            objetivo_coluna = colunas - 1
 
     camera = cv2.VideoCapture(0)
     camera_ok = camera.isOpened()
@@ -566,7 +600,22 @@ def main():
             cv2.namedWindow("Camera", cv2.WINDOW_NORMAL)
         except Exception:
             pass
+    if camera_ok:
+        # Define resolução moderada para aliviar CPU
+        camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     tela, relogio, personagem, largura_terminal = init_jogo(tamanho_celula, linhas, colunas)
+    # Pré-carrega sprite (modo fácil) e superfícies estáticas
+    is_facil = (not modo_muito_facil) and (len(valores) == 4 and valores[3] == "facil")
+    sprite_parede = None
+    if is_facil:
+        try:
+            sprite_parede = pg.image.load("docs/assets/parede.png").convert_alpha()
+            sprite_parede = pg.transform.scale(sprite_parede, (tamanho_celula, tamanho_celula))
+        except Exception:
+            sprite_parede = None
+    grid_surf = build_grid_surface(linhas, colunas, tamanho_celula)
+    maze_surf = pg.Surface((colunas * tamanho_celula, linhas * tamanho_celula), pg.SRCALPHA) if modo_muito_facil else build_maze_surface(labirinto, tamanho_celula, is_facil, sprite_parede)
     # Estado do detector robusto
     recentes = deque(maxlen=DETECT_RECENT_LEN)
     ultimo_disparo = 0.0
@@ -607,140 +656,130 @@ def main():
             tela.blit(texto, (x_terminal + 10, y_terminal + i * altura_linha))
 
     frame = None
+    frame_count = 0
 
     while rodando:
+        frame_count += 1
+        detection_run = (frame_count % DETECT_EVERY_N == 0)
+
         if modo_comando and not executarMovimento:
-            for evento in pg.event.get():
-                if evento.type == pg.QUIT:
-                    rodando = False
-                elif evento.type == pg.VIDEORESIZE:
-                    # Atualiza tamanho da janela mantendo o modo redimensionável
-                    tela = pg.display.set_mode((evento.w, evento.h), pg.RESIZABLE)
-                elif evento.type == pg.KEYDOWN:
-                    if not personagem.em_movimento:
-                        if evento.key == pg.K_LEFT:
-                            personagem.movimento.append("LEFT")
-                            contador += 1
-                            adicionar_log("Detectado: 🔁 ESQUERDA")
-                        if evento.key == pg.K_RIGHT:
-                            personagem.movimento.append("RIGHT")
-                            contador += 1
-                            adicionar_log("Detectado: 🔁 DIREITA")
-                        if evento.key == pg.K_SPACE:
-                            personagem.movimento.append("SPACE")
-                            contador += 1
-                            adicionar_log("Detectado: ⬇️ FRENTE")
-                        if evento.key == pg.K_RETURN:
-                            executarMovimento = True
-            cor_detectada, frame = detectar_cor(camera)
-            tempo_atual = time.time()
-
-            # Só adiciona movimento se passou o cooldown OU a cor é diferente da anterior
-            if not personagem.em_movimento:
-                recentes.append(cor_detectada if cor_detectada else "_")
-                if tempo_atual - ultimo_disparo >= DETECT_REFRACTORY_SEC and len(recentes) == DETECT_RECENT_LEN:
-                    cont = Counter([c for c in recentes if c != "_"])
-                    if cont:
-                        cor_maj, votos = cont.most_common(1)[0]
-                        if votos >= DETECT_MAJORITY_MIN:
-                            if cor_maj == "vermelho":
-                                personagem.movimento.append("LEFT")
-                                contador += 1
-                                adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
-                                ultimo_disparo = tempo_atual
-                            elif cor_maj == "azul":
-                                personagem.movimento.append("RIGHT")
-                                contador += 1
-                                adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
-                                ultimo_disparo = tempo_atual
-                            elif cor_maj == "verde":
-                                personagem.movimento.append("SPACE")
-                                contador += 1
-                                adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
-                                ultimo_disparo = tempo_atual
-            # Atualiza histórico
-            ultima_cor_detectada = cor_detectada
-            tempo_ultima_detecao = tempo_atual
-
-            if SHOW_CAMERA and camera_ok and frame is not None:
-                cv2.imshow("Camera", frame)
-                cv2.waitKey(1)
-        
-        elif not modo_comando:
+            # Coleta comandos na fila
             for evento in pg.event.get():
                 if evento.type == pg.QUIT:
                     rodando = False
                 elif evento.type == pg.VIDEORESIZE:
                     tela = pg.display.set_mode((evento.w, evento.h), pg.RESIZABLE)
-                elif evento.type == pg.KEYDOWN:
-                    if not personagem.em_movimento:
-                        if evento.key == pg.K_LEFT:
-                            personagem.girar_para(90)
-                            contador += 1
-                            adicionar_log("🔁 ESQUERDA")
-                        elif evento.key == pg.K_RIGHT:
-                            personagem.girar_para(-90)
-                            contador += 1
-                            adicionar_log("🔁 DIREITA")
-                        elif evento.key == pg.K_SPACE:
-                            if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
-                                if not personagem.em_movimento and not personagem.girando and personagem.pode_mover_frente(labirinto, tamanho_celula):
-                                    personagem.iniciar_movimento(tamanho_celula)
+                elif evento.type == pg.KEYDOWN and not personagem.em_movimento:
+                    if evento.key == pg.K_LEFT:
+                        personagem.movimento.append("LEFT")
+                        contador += 1
+                        adicionar_log("Detectado: 🔁 ESQUERDA")
+                    elif evento.key == pg.K_RIGHT:
+                        personagem.movimento.append("RIGHT")
+                        contador += 1
+                        adicionar_log("Detectado: 🔁 DIREITA")
+                    elif evento.key == pg.K_SPACE:
+                        personagem.movimento.append("SPACE")
+                        contador += 1
+                        adicionar_log("Detectado: ⬇️ FRENTE")
+                    elif evento.key == pg.K_RETURN:
+                        executarMovimento = True
+
+            if camera_ok and detection_run:
+                cor_detectada, frame = detectar_cor(camera)
+                tempo_atual = time.time()
+                if not personagem.em_movimento:
+                    recentes.append(cor_detectada if cor_detectada else "_")
+                    if tempo_atual - ultimo_disparo >= DETECT_REFRACTORY_SEC and len(recentes) == DETECT_RECENT_LEN:
+                        cont = Counter([c for c in recentes if c != "_"])
+                        if cont:
+                            cor_maj, votos = cont.most_common(1)[0]
+                            if votos >= DETECT_MAJORITY_MIN:
+                                if cor_maj == "vermelho":
+                                    personagem.movimento.append("LEFT")
                                     contador += 1
-                                    adicionar_log("⬇️ FRENTE")
-            cor_detectada, frame = detectar_cor(camera)
-            tempo_atual = time.time()
-            if not personagem.em_movimento:
-                recentes.append(cor_detectada if cor_detectada else "_")
-                if tempo_atual - ultimo_disparo >= DETECT_REFRACTORY_SEC and len(recentes) == DETECT_RECENT_LEN:
-                    cont = Counter([c for c in recentes if c != "_"])
-                    if cont:
-                        cor_maj, votos = cont.most_common(1)[0]
-                        if votos >= DETECT_MAJORITY_MIN:
-                            if cor_maj == "vermelho":
-                                personagem.girar_para(90)
-                                contador += 1
-                                adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
-                                ultimo_disparo = tempo_atual
-                            elif cor_maj == "azul":
-                                personagem.girar_para(-90)
-                                contador += 1
-                                adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
-                                ultimo_disparo = tempo_atual
-                            elif cor_maj == "verde":
-                                if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
-                                    if not personagem.em_movimento and not personagem.girando and personagem.pode_mover_frente(labirinto, tamanho_celula):
-                                        personagem.iniciar_movimento(tamanho_celula)
-                                        contador += 1
-                                        adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
-                                        ultimo_disparo = tempo_atual
-            # Atualiza histórico
-            ultima_cor_detectada = cor_detectada
-            tempo_ultima_detecao = tempo_atual
+                                    adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
+                                    ultimo_disparo = tempo_atual
+                                elif cor_maj == "azul":
+                                    personagem.movimento.append("RIGHT")
+                                    contador += 1
+                                    adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
+                                    ultimo_disparo = tempo_atual
+                                elif cor_maj == "verde":
+                                    personagem.movimento.append("SPACE")
+                                    contador += 1
+                                    adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
+                                    ultimo_disparo = tempo_atual
+                ultima_cor_detectada = cor_detectada
+                tempo_ultima_detecao = tempo_atual
 
-            if SHOW_CAMERA and camera_ok and frame is not None:
-                cv2.imshow("Camera", frame)
-                cv2.waitKey(1)
+        elif not modo_comando:
+            # Controle imediato
+            for evento in pg.event.get():
+                if evento.type == pg.QUIT:
+                    rodando = False
+                elif evento.type == pg.VIDEORESIZE:
+                    tela = pg.display.set_mode((evento.w, evento.h), pg.RESIZABLE)
+                elif evento.type == pg.KEYDOWN and not personagem.em_movimento:
+                    if evento.key == pg.K_LEFT:
+                        personagem.girar_para(90)
+                        contador += 1
+                        adicionar_log("🔁 ESQUERDA")
+                    elif evento.key == pg.K_RIGHT:
+                        personagem.girar_para(-90)
+                        contador += 1
+                        adicionar_log("🔁 DIREITA")
+                    elif evento.key == pg.K_SPACE:
+                        if not personagem.em_movimento and not personagem.girando:
+                            if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
+                                personagem.iniciar_movimento(tamanho_celula)
+                                contador += 1
+                                adicionar_log("⬇️ FRENTE")
 
+            if camera_ok and detection_run:
+                cor_detectada, frame = detectar_cor(camera)
+                tempo_atual = time.time()
+                if not personagem.em_movimento:
+                    recentes.append(cor_detectada if cor_detectada else "_")
+                    if tempo_atual - ultimo_disparo >= DETECT_REFRACTORY_SEC and len(recentes) == DETECT_RECENT_LEN:
+                        cont = Counter([c for c in recentes if c != "_"])
+                        if cont:
+                            cor_maj, votos = cont.most_common(1)[0]
+                            if votos >= DETECT_MAJORITY_MIN:
+                                if cor_maj == "vermelho":
+                                    personagem.girar_para(90)
+                                    contador += 1
+                                    adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
+                                    ultimo_disparo = tempo_atual
+                                elif cor_maj == "azul":
+                                    personagem.girar_para(-90)
+                                    contador += 1
+                                    adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
+                                    ultimo_disparo = tempo_atual
+                                elif cor_maj == "verde":
+                                    if not personagem.em_movimento and not personagem.girando:
+                                        if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
+                                            personagem.iniciar_movimento(tamanho_celula)
+                                            contador += 1
+                                            adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
+                                            ultimo_disparo = tempo_atual
+                ultima_cor_detectada = cor_detectada
+                tempo_ultima_detecao = tempo_atual
 
         else:
             # Execução com pausas no modo comando
-            # Garante processamento mínimo de eventos para manter a janela responsiva
             for evento in pg.event.get():
                 if evento.type == pg.QUIT:
                     rodando = False
                 elif evento.type == pg.VIDEORESIZE:
                     tela = pg.display.set_mode((evento.w, evento.h), pg.RESIZABLE)
-                # sem F1/calibração
             now_ticks = pg.time.get_ticks()
-            # Detecta término do comando atual
             if command_in_progress and not personagem.girando and not personagem.em_movimento:
                 command_in_progress = False
                 last_command_finished_at = now_ticks
 
             if not command_in_progress and not personagem.girando and not personagem.em_movimento:
                 if personagem.movimento:
-                    # aguarda a pausa entre comandos
                     if now_ticks - last_command_finished_at >= delay_entre_movimentos:
                         comando = personagem.movimento.popleft()
                         if comando == "LEFT":
@@ -754,53 +793,31 @@ def main():
                                 personagem.iniciar_movimento(tamanho_celula)
                                 command_in_progress = True
                             else:
-                                # movimento inválido: impõe pausa e segue para o próximo
                                 last_command_finished_at = now_ticks
                 else:
                     executarMovimento = False
-        
 
-        # Garante que o SDL processe a fila de eventos a cada frame
+        # Renderização comum
         pg.event.pump()
-
-        # Fundo do painel principal (área do labirinto)
         tela.fill(COR_TELA)
-
-        # Linhas horizontais
-        for i in range(linhas + 1):
-            y = i * tamanho_celula
-            pg.draw.line(tela, (211, 211, 211), (0, y), (colunas * tamanho_celula, y), 1)
-
-        # Linhas verticais
-        for j in range(colunas + 1):
-            x = j * tamanho_celula
-            pg.draw.line(tela, (211, 211, 211), (x, 0), (x, linhas * tamanho_celula), 1)
-
+        tela.blit(grid_surf, (0, 0))
         if not modo_muito_facil:
-            if len(valores) == 4 and valores[3] == "facil":
-                sprite_parede = pg.image.load("docs/assets/parede.png").convert_alpha()
-                sprite_parede = pg.transform.scale(sprite_parede, (tamanho_celula, tamanho_celula))
-                labirinto.desenhar(tela, tamanho_celula, desenhar_linhas_guia=False, sprite_parede=sprite_parede)
-            else:
-                labirinto.desenhar(tela, tamanho_celula, desenhar_linhas_guia=True)
+            tela.blit(maze_surf, (0, 0))
 
         x_obj = objetivo_coluna * tamanho_celula + tamanho_celula // 4
         y_obj = objetivo_linha * tamanho_celula + tamanho_celula // 4
         tamanho_objetivo = tamanho_celula // 2
-
         pg.draw.rect(tela, (0, 255, 0), (x_obj, y_obj, tamanho_objetivo, tamanho_objetivo))
         personagem.desenhar(tela)
         desenhar_terminal(tela, largura_terminal, tela.get_height(), tela.get_width())
 
         col_atual = int(personagem.x // tamanho_celula)
         lin_atual = int(personagem.y // tamanho_celula)
-
         if col_atual == objetivo_coluna and lin_atual == objetivo_linha:
             rodando = False
 
         personagem.atualizar_rotacao()
         personagem.atualizar_movimento()
-
         texto = fonte_terminal.render("Movimentos: " + str(contador), True, (200,200,200))
         tela.blit(texto,(10,10))
 

@@ -1,0 +1,4 @@
+# Dependências necessárias para executar o projeto
+numpy
+pygame
+opencv-python

@@ -34,10 +34,14 @@ SHOW_CAMERA = True
 
 # Configuração fixa de detecção (HSV, ROI, filtros) com parâmetros robustos
 HSV_RANGES = {
-    "vermelho": {"lower": [0, 120, 70], "upper": [10, 255, 255]},
-    "azul": {"lower": [100, 180, 50], "upper": [130, 255, 255]},
-    "verde": {"lower": [40, 70, 70], "upper": [90, 255, 255]},
+    # Ajustados para cores fracas/pastel; amarelo restringido em H e com S/V moderados
+    "amarelo": {"lower": [22, 40, 130], "upper": [36, 255, 255]},
+    "azul": {"lower": [95, 20, 120], "upper": [130, 255, 255]},
+    "verde": {"lower": [35, 20, 120], "upper": [90, 255, 255]},
 }
+
+# Faixa de pele em HSV para excluir da detecção do amarelo (evita falsos positivos)
+SKIN_RANGE = {"lower": [0, 48, 80], "upper": [20, 255, 255]}
 ROI_W, ROI_H = 220, 220
 BLUR = 5           # ímpar >=3; 0/1 desativa
 ERODE_IT = 1
@@ -136,6 +140,11 @@ def detectar_cor(camera):
     erode_it = int(ERODE_IT)
     dilate_it = int(DILATE_IT)
 
+    # Máscara de pele para excluir da detecção de amarelo
+    lower_skin = np.array(SKIN_RANGE.get("lower", [0, 0, 0]))
+    upper_skin = np.array(SKIN_RANGE.get("upper", [0, 0, 0]))
+    skin_mask = cv2.inRange(hsv, lower_skin, upper_skin)
+
     best_cor = None
     best_area = 0
     for cor, rng in HSV_RANGES.items():
@@ -143,6 +152,9 @@ def detectar_cor(camera):
         upper_np = np.array(rng.get("upper", [179, 255, 255]))
 
         mask = cv2.inRange(hsv, lower_np, upper_np)
+        # Exclui tons de pele da máscara do amarelo
+        if cor == "amarelo":
+            mask = cv2.bitwise_and(mask, cv2.bitwise_not(skin_mask))
         if erode_it > 0:
             mask = cv2.erode(mask, None, iterations=erode_it)
         if dilate_it > 0:
@@ -695,20 +707,20 @@ def main():
                         if cont:
                             cor_maj, votos = cont.most_common(1)[0]
                             if votos >= DETECT_MAJORITY_MIN:
-                                if cor_maj == "vermelho":
+                                if cor_maj == "amarelo":
                                     personagem.movimento.append("LEFT")
                                     contador += 1
-                                    adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
-                                    ultimo_disparo = tempo_atual
-                                elif cor_maj == "azul":
-                                    personagem.movimento.append("RIGHT")
-                                    contador += 1
-                                    adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
+                                    adicionar_log("Detectado: 🟨 -> 🔁 ESQUERDA")
                                     ultimo_disparo = tempo_atual
                                 elif cor_maj == "verde":
+                                    personagem.movimento.append("RIGHT")
+                                    contador += 1
+                                    adicionar_log("Detectado: 🟩 -> 🔁 DIREITA")
+                                    ultimo_disparo = tempo_atual
+                                elif cor_maj == "azul":
                                     personagem.movimento.append("SPACE")
                                     contador += 1
-                                    adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
+                                    adicionar_log("Detectado: 🟦 -> ⬇️ FRENTE")
                                     ultimo_disparo = tempo_atual
                 ultima_cor_detectada = cor_detectada
                 tempo_ultima_detecao = tempo_atual
@@ -746,10 +758,10 @@ def main():
                         if cont:
                             cor_maj, votos = cont.most_common(1)[0]
                             if votos >= DETECT_MAJORITY_MIN:
-                                if cor_maj == "vermelho":
+                                if cor_maj == "amarelo":
                                     personagem.girar_para(90)
                                     contador += 1
-                                    adicionar_log("Detectado: VERMELHO -> 🔁 ESQUERDA")
+                                    adicionar_log("Detectado: AMARELO -> 🔁 ESQUERDA")
                                     ultimo_disparo = tempo_atual
                                 elif cor_maj == "azul":
                                     personagem.girar_para(-90)

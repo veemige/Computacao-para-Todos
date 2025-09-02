@@ -6,7 +6,7 @@ via OpenCV, renderização com Pygame e uma UI inicial em Tkinter para escolher
 modo e dificuldade. O objetivo é manter o código acessível e bem comentado, sem
 alterar o comportamento atual.
 """
-#uashduas
+#uashduasasdasdas
 # Demonstração de algoritmos de forma lúdica, forma interativa
 import numpy as np
 import pygame as pg

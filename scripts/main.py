@@ -18,6 +18,7 @@ import time
 import tkinter as tk
 from collections import deque, Counter
 import os
+import DefMQTT as mqtt
 
 # ==============================
 # Configurações e Constantes
@@ -31,6 +32,9 @@ COR_TELA = (100, 103, 97)
 
 # Mostrar janela da câmera (pode desativar se interferir no Pygame)
 SHOW_CAMERA = True
+
+# Modo de entrada da câmera: "qr" ou "color"
+CAMERA_INPUT_MODE = "qr"
 
 # Configuração fixa de detecção (HSV, ROI, filtros) com parâmetros robustos
 HSV_RANGES = {
@@ -54,6 +58,21 @@ DETECT_RECENT_LEN = 7
 DETECT_MAJORITY_MIN = 4
 DETECT_REFRACTORY_SEC = 0.7
 DETECT_EVERY_N = 2  # roda detecção a cada N frames
+
+QR_COMMAND_MAP = {
+    "LEFT": "LEFT",
+    "ESQUERDA": "LEFT",
+    "L": "LEFT",
+    "RIGHT": "RIGHT",
+    "DIREITA": "RIGHT",
+    "R": "RIGHT",
+    "SPACE": "SPACE",
+    "FRENTE": "SPACE",
+    "FORWARD": "SPACE",
+    "GO": "SPACE",
+    "UP": "SPACE",
+    "S": "SPACE",
+}
 
 def escolher_dificuldade_tkinter():
     """Abre uma pequena janela Tkinter para selecionar dificuldade e tipo de movimento.
@@ -183,6 +202,80 @@ def detectar_cor(camera):
     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
 
     return None, frame
+
+
+def normalizar_qr(data):
+    """Converte o texto do QR em um comando canônico do jogo."""
+    if not data:
+        return None
+    return QR_COMMAND_MAP.get(data.strip().upper())
+
+
+def detectar_qr(camera, qr_detector):
+    """Detecta QR code e retorna (comando, frame, origem_lida)."""
+    ret, frame = camera.read()
+    if not ret:
+        return None, None, None
+
+    try:
+        ok, decoded_info, points, _ = qr_detector.detectAndDecodeMulti(frame)
+    except Exception:
+        ok = False
+        decoded_info, points = [], None
+
+    if ok and decoded_info:
+        for idx, data in enumerate(decoded_info):
+            comando = normalizar_qr(data)
+            if not comando:
+                continue
+
+            origem = data.strip()
+            if points is not None and len(points) > idx:
+                pts = np.int32(points[idx]).reshape((-1, 1, 2))
+                cv2.polylines(frame, [pts], True, (0, 255, 255), 3)
+                x, y = pts[0][0]
+                cv2.putText(frame, origem, (x, max(30, y - 10)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+            return comando, frame, origem
+
+    data, points, _ = qr_detector.detectAndDecode(frame)
+    comando = normalizar_qr(data)
+    origem = data.strip() if comando and data else None
+    if comando and points is not None:
+        pts = np.int32(points).reshape((-1, 1, 2))
+        cv2.polylines(frame, [pts], True, (0, 255, 255), 3)
+        x, y = pts[0][0]
+        cv2.putText(frame, origem, (x, max(30, y - 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+
+    return comando, frame, origem
+
+
+def detectar_comando_camera(camera, qr_detector=None):
+    """Abstrai a origem do comando da câmera."""
+    if CAMERA_INPUT_MODE == "qr":
+        return detectar_qr(camera, qr_detector)
+
+    cor_detectada, frame = detectar_cor(camera)
+    if cor_detectada == "amarelo":
+        return "LEFT", frame, cor_detectada
+    if cor_detectada == "azul":
+        return "RIGHT", frame, cor_detectada
+    if cor_detectada == "verde":
+        return "SPACE", frame, cor_detectada
+    return None, frame, None
+
+
+def descrever_comando_camera(comando, origem):
+    """Gera a mensagem mostrada no terminal lateral."""
+    origem_txt = (origem or comando or "CAMERA").upper()
+    if comando == "LEFT":
+        return f"Detectado: {origem_txt} -> ESQUERDA"
+    if comando == "RIGHT":
+        return f"Detectado: {origem_txt} -> DIREITA"
+    if comando == "SPACE":
+        return f"Detectado: {origem_txt} -> FRENTE"
+    return f"Detectado: {origem_txt}"
 
 
 class Celula:
@@ -628,9 +721,11 @@ def main():
             sprite_parede = None
     grid_surf = build_grid_surface(linhas, colunas, tamanho_celula)
     maze_surf = pg.Surface((colunas * tamanho_celula, linhas * tamanho_celula), pg.SRCALPHA) if modo_muito_facil else build_maze_surface(labirinto, tamanho_celula, is_facil, sprite_parede)
-    # Estado do detector robusto
+    # Estado do detector da câmera
     recentes = deque(maxlen=DETECT_RECENT_LEN)
     ultimo_disparo = 0.0
+    ultimo_token_camera = None
+    qr_detector = cv2.QRCodeDetector() if CAMERA_INPUT_MODE == "qr" else None
     # Controle do modo comando: pausa entre execuções
     last_command_finished_at = pg.time.get_ticks()
     command_in_progress = False
@@ -638,9 +733,6 @@ def main():
     rodando = True
     executarMovimento = False
     contador = 0
-    ultima_cor_detectada = None
-    tempo_ultima_detecao = 0
-    cooldown = 0.0  # usando período refratário
 
     log_terminal = []  # Lista pra armazenar as mensagens do terminal
     limite_linhas_terminal = 15  # Quantas linhas queremos mostrar
@@ -698,32 +790,37 @@ def main():
                         executarMovimento = True
 
             if camera_ok and detection_run:
-                cor_detectada, frame = detectar_cor(camera)
+                comando_camera, frame, origem_camera = detectar_comando_camera(camera, qr_detector)
                 tempo_atual = time.time()
                 if not personagem.em_movimento:
-                    recentes.append(cor_detectada if cor_detectada else "_")
-                    if tempo_atual - ultimo_disparo >= DETECT_REFRACTORY_SEC and len(recentes) == DETECT_RECENT_LEN:
-                        cont = Counter([c for c in recentes if c != "_"])
-                        if cont:
-                            cor_maj, votos = cont.most_common(1)[0]
-                            if votos >= DETECT_MAJORITY_MIN:
-                                if cor_maj == "amarelo":
-                                    personagem.movimento.append("LEFT")
-                                    contador += 1
-                                    adicionar_log("Detectado: 🟨 -> 🔁 ESQUERDA")
-                                    ultimo_disparo = tempo_atual
-                                elif cor_maj == "verde":
-                                    personagem.movimento.append("RIGHT")
-                                    contador += 1
-                                    adicionar_log("Detectado: 🟩 -> 🔁 DIREITA")
-                                    ultimo_disparo = tempo_atual
-                                elif cor_maj == "azul":
-                                    personagem.movimento.append("SPACE")
-                                    contador += 1
-                                    adicionar_log("Detectado: 🟦 -> ⬇️ FRENTE")
-                                    ultimo_disparo = tempo_atual
-                ultima_cor_detectada = cor_detectada
-                tempo_ultima_detecao = tempo_atual
+                    if CAMERA_INPUT_MODE == "qr":
+                        if comando_camera:
+                            token_camera = f"{origem_camera}|{comando_camera}"
+                            if token_camera != ultimo_token_camera or tempo_atual - ultimo_disparo >= DETECT_REFRACTORY_SEC:
+                                personagem.movimento.append(comando_camera)
+                                contador += 1
+                                adicionar_log(descrever_comando_camera(comando_camera, origem_camera))
+                                ultimo_disparo = tempo_atual
+                            ultimo_token_camera = token_camera
+                        else:
+                            ultimo_token_camera = None
+                    else:
+                        recentes.append(origem_camera if origem_camera else "_")
+                        if tempo_atual - ultimo_disparo >= DETECT_REFRACTORY_SEC and len(recentes) == DETECT_RECENT_LEN:
+                            cont = Counter([c for c in recentes if c != "_"])
+                            if cont:
+                                cor_maj, votos = cont.most_common(1)[0]
+                                if votos >= DETECT_MAJORITY_MIN:
+                                    comando_por_cor = {
+                                        "amarelo": "LEFT",
+                                        "azul": "RIGHT",
+                                        "verde": "SPACE",
+                                    }.get(cor_maj)
+                                    if comando_por_cor:
+                                        personagem.movimento.append(comando_por_cor)
+                                        contador += 1
+                                        adicionar_log(descrever_comando_camera(comando_por_cor, cor_maj))
+                                        ultimo_disparo = tempo_atual
 
         elif not modo_comando:
             # Controle imediato
@@ -734,49 +831,71 @@ def main():
                     tela = pg.display.set_mode((evento.w, evento.h), pg.RESIZABLE)
                 elif evento.type == pg.KEYDOWN and not personagem.em_movimento:
                     if evento.key == pg.K_LEFT:
+                        mqtt.send_message("LEFT")
                         personagem.girar_para(90)
                         contador += 1
                         adicionar_log("🔁 ESQUERDA")
                     elif evento.key == pg.K_RIGHT:
+                        mqtt.send_message("RIGHT")
                         personagem.girar_para(-90)
                         contador += 1
                         adicionar_log("🔁 DIREITA")
                     elif evento.key == pg.K_SPACE:
                         if not personagem.em_movimento and not personagem.girando:
                             if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
+                                mqtt.send_message("SPACE")
                                 personagem.iniciar_movimento(tamanho_celula)
                                 contador += 1
                                 adicionar_log("⬇️ FRENTE")
 
             if camera_ok and detection_run:
-                cor_detectada, frame = detectar_cor(camera)
+                comando_camera, frame, origem_camera = detectar_comando_camera(camera, qr_detector)
                 tempo_atual = time.time()
                 if not personagem.em_movimento:
-                    recentes.append(cor_detectada if cor_detectada else "_")
-                    if tempo_atual - ultimo_disparo >= DETECT_REFRACTORY_SEC and len(recentes) == DETECT_RECENT_LEN:
-                        cont = Counter([c for c in recentes if c != "_"])
-                        if cont:
-                            cor_maj, votos = cont.most_common(1)[0]
-                            if votos >= DETECT_MAJORITY_MIN:
-                                if cor_maj == "amarelo":
-                                    personagem.girar_para(90)
+                    comandos_prontos = []
+                    if CAMERA_INPUT_MODE == "qr":
+                        if comando_camera:
+                            token_camera = f"{origem_camera}|{comando_camera}"
+                            if token_camera != ultimo_token_camera or tempo_atual - ultimo_disparo >= DETECT_REFRACTORY_SEC:
+                                comandos_prontos.append((comando_camera, origem_camera))
+                                ultimo_disparo = tempo_atual
+                            ultimo_token_camera = token_camera
+                        else:
+                            ultimo_token_camera = None
+                    else:
+                        recentes.append(origem_camera if origem_camera else "_")
+                        if tempo_atual - ultimo_disparo >= DETECT_REFRACTORY_SEC and len(recentes) == DETECT_RECENT_LEN:
+                            cont = Counter([c for c in recentes if c != "_"])
+                            if cont:
+                                cor_maj, votos = cont.most_common(1)[0]
+                                if votos >= DETECT_MAJORITY_MIN:
+                                    comando_por_cor = {
+                                        "amarelo": "LEFT",
+                                        "azul": "RIGHT",
+                                        "verde": "SPACE",
+                                    }.get(cor_maj)
+                                    if comando_por_cor:
+                                        comandos_prontos.append((comando_por_cor, cor_maj))
+                                        ultimo_disparo = tempo_atual
+
+                    for comando_camera, origem_camera in comandos_prontos:
+                        if comando_camera == "LEFT":
+                            mqtt.send_message("LEFT")
+                            personagem.girar_para(90)
+                            contador += 1
+                            adicionar_log(descrever_comando_camera("LEFT", origem_camera))
+                        elif comando_camera == "RIGHT":
+                            mqtt.send_message("RIGHT")
+                            personagem.girar_para(-90)
+                            contador += 1
+                            adicionar_log(descrever_comando_camera("RIGHT", origem_camera))
+                        elif comando_camera == "SPACE":
+                            if not personagem.em_movimento and not personagem.girando:
+                                if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
+                                    mqtt.send_message("SPACE")
+                                    personagem.iniciar_movimento(tamanho_celula)
                                     contador += 1
-                                    adicionar_log("Detectado: AMARELO -> 🔁 ESQUERDA")
-                                    ultimo_disparo = tempo_atual
-                                elif cor_maj == "azul":
-                                    personagem.girar_para(-90)
-                                    contador += 1
-                                    adicionar_log("Detectado: AZUL -> 🔁 DIREITA")
-                                    ultimo_disparo = tempo_atual
-                                elif cor_maj == "verde":
-                                    if not personagem.em_movimento and not personagem.girando:
-                                        if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
-                                            personagem.iniciar_movimento(tamanho_celula)
-                                            contador += 1
-                                            adicionar_log("Detectado: 🟩 -> ⬇️ FRENTE")
-                                            ultimo_disparo = tempo_atual
-                ultima_cor_detectada = cor_detectada
-                tempo_ultima_detecao = tempo_atual
+                                    adicionar_log(descrever_comando_camera("SPACE", origem_camera))
 
         else:
             # Execução com pausas no modo comando
@@ -796,13 +915,16 @@ def main():
                         comando = personagem.movimento.popleft()
                         if comando == "LEFT":
                             personagem.girar_para(90)
+                            mqtt.send_message("LEFT")
                             command_in_progress = True
                         elif comando == "RIGHT":
                             personagem.girar_para(-90)
+                            mqtt.send_message("RIGHT")
                             command_in_progress = True
                         elif comando == "SPACE":
                             if modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula):
                                 personagem.iniciar_movimento(tamanho_celula)
+                                mqtt.send_message("SPACE")
                                 command_in_progress = True
                             else:
                                 last_command_finished_at = now_ticks

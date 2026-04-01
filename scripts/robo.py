@@ -34,8 +34,8 @@ def mqtt_callback(topic, payload):
         texto = str(payload)
     print('Mensagem recebida em', topic.decode(), ':', texto)
     msg = texto
-    
-    if int(texto) == 1:
+
+    if msg == "frente":
         print("anda para frente")
         esquerda.value(1)
         direita.value(1)
@@ -49,15 +49,15 @@ def mqtt_callback(topic, payload):
         direita.value(0)
         time.sleep(1)
         esquerda.value(0)
-        
-    elif int(texto) == 3:
+
+    elif msg == "direita":
         print("anda para direita")
         esquerda.value(0)
         direita.value(1)
         time.sleep(1)
         
         direita.value(0)
-    elif int(texto) == 4:
+    elif msg == "esquerda":
         print("anda para esquerda")
         esquerda.value(1)
         direita.value(1)
@@ -94,5 +94,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-

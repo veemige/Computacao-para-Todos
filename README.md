@@ -5,7 +5,7 @@ Projeto educacional para popularização do pensamento computacional, com demons
 ## Funcionalidades
 
 - Geração automática de labirintos em diferentes dificuldades
-- Controle do robô por teclado ou por detecção de cor via webcam
+- Controle do robô por teclado ou por webcam
 - Interface gráfica com Pygame e integração com OpenCV
 
 ## Como funciona a geração de labirintos
@@ -64,7 +64,7 @@ Propriedade: gera um “labirinto perfeito” (existe exatamente um caminho simp
 - Setas: girar ou mover o robô
 - Espaço: avançar
 - Enter: executar sequência de comandos (modo comando)
-- Webcam: detecta cores (vermelho, azul, verde) para controlar o robô
+- Webcam: pode detectar QR codes com comandos como `LEFT`, `RIGHT` e `SPACE`
 
 ## Créditos
 

@@ -23,12 +23,3 @@ wheels/
 .installed.cfg
 *.egg
 =======
-# Python
-__pycache__/
-*.pyc
-venv/
-.env
-
-# VS Code
-.vscode/
->>>>>>> 404267eaaa7b778c243b2fb12cb3b46f81192a1a

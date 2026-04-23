@@ -5,11 +5,12 @@ import tkinter as tk
 
 def escolher_dificuldade_tkinter():
     """Abre uma pequena janela Tkinter para selecionar dificuldade e movimento."""
-    dificuldade = {"valores": None, "tipo_movimento": None}
+    dificuldade = {"valores": None, "tipo_movimento": None, "tipo_verificador": "tecla"}
 
-    def selecionar(valores, tipo_movimento):
+    def selecionar(valores, tipo_movimento, tipo_verificador):
         dificuldade["valores"] = valores
         dificuldade["tipo_movimento"] = tipo_movimento
+        dificuldade["tipo_verificador"] = tipo_verificador
         root.destroy()
 
     root = tk.Tk()
@@ -53,13 +54,34 @@ def escolher_dificuldade_tkinter():
         value="direto",
     ).pack()
 
+    tk.Label(root, text="Gatilho do Verificador:", font=("Arial", 16)).pack(pady=10)
+
+    tipo_verificador_var = tk.StringVar(value="tecla")
+    tk.Radiobutton(
+        root,
+        text="Tecla pre-definida",
+        variable=tipo_verificador_var,
+        value="tecla",
+    ).pack()
+    tk.Radiobutton(
+        root,
+        text="QR code com palavra-chave",
+        variable=tipo_verificador_var,
+        value="qr",
+    ).pack()
+
     def confirmar():
         if dificuldade_var.get():
             valores = eval(dificuldade_var.get())
             tipo = tipo_movimento_var.get()
-            selecionar(valores, tipo)
+            tipo_verificador = tipo_verificador_var.get()
+            selecionar(valores, tipo, tipo_verificador)
 
     tk.Button(root, text="Confirmar", command=confirmar, bg="gray").pack(pady=20)
 
     root.mainloop()
-    return dificuldade["valores"], dificuldade["tipo_movimento"]
+    return (
+        dificuldade["valores"],
+        dificuldade["tipo_movimento"],
+        dificuldade["tipo_verificador"],
+    )

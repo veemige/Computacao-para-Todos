@@ -13,7 +13,14 @@ from game_modules.camera_utils import (
     mostrar_camera,
     processar_entrada_camera,
 )
-from game_modules.config import COR_TELA, DELAY_ENTRE_MOVIMENTOS, FPS
+from game_modules.config import (
+    COMANDO_VERIFICADOR,
+    COR_TELA,
+    DELAY_ENTRE_MOVIMENTOS,
+    FPS,
+    TECLA_VERIFICADOR,
+    VERIFICADOR_GIRO_DIRECAO,
+)
 from game_modules.maze import preparar_labirinto
 from game_modules.player import Personagem
 from game_modules.ui import escolher_dificuldade_tkinter
@@ -85,6 +92,32 @@ def criar_surfaces_jogo(linhas, colunas, tamanho_celula, labirinto, modo_muito_f
     return grid_surf, maze_surf
 
 
+def criar_fog_surface(linhas, colunas, tamanho_celula):
+    largura = colunas * tamanho_celula
+    altura = linhas * tamanho_celula
+    fog_surf = pg.Surface((largura, altura), pg.SRCALPHA)
+    fog_surf.fill((0, 0, 0, 255))
+    return fog_surf
+
+
+def obter_celula_personagem(personagem, tamanho_celula, linhas, colunas):
+    coluna = int(personagem.x // tamanho_celula)
+    linha = int(personagem.y // tamanho_celula)
+    coluna = max(0, min(colunas - 1, coluna))
+    linha = max(0, min(linhas - 1, linha))
+    return linha, coluna
+
+
+def revelar_celula(fog_surf, linha, coluna, tamanho_celula):
+    area = pg.Rect(
+        coluna * tamanho_celula,
+        linha * tamanho_celula,
+        tamanho_celula,
+        tamanho_celula,
+    )
+    fog_surf.fill((0, 0, 0, 0), area)
+
+
 def criar_terminal():
     log_terminal = []
     limite_linhas = 15
@@ -111,6 +144,22 @@ def registrar_comando_em_fila(personagem, comando, origem, adicionar_log):
     personagem.movimento.append(comando)
     adicionar_log(descrever_comando_camera(comando, origem))
     return 1
+
+
+def girar_verificador(personagem):
+    if VERIFICADOR_GIRO_DIRECAO == "LEFT":
+        personagem.girar_para(90)
+    else:
+        personagem.girar_para(-90)
+
+
+def executar_comando_verificador(personagem, labirinto, tamanho_celula, modo_muito_facil):
+    if pode_avancar(personagem, labirinto, tamanho_celula, modo_muito_facil):
+        personagem.iniciar_movimento(tamanho_celula)
+        return "move"
+
+    girar_verificador(personagem)
+    return "turn"
 
 
 def pode_avancar(personagem, labirinto, tamanho_celula, modo_muito_facil):
@@ -149,10 +198,11 @@ def tratar_eventos_saida(tela, eventos):
     return rodando, tela
 
 
-def tratar_eventos_modo_comando(eventos, tela, personagem, adicionar_log):
+def tratar_eventos_modo_comando(eventos, tela, personagem, adicionar_log, tipo_verificador):
     rodando, tela = tratar_eventos_saida(tela, eventos)
     executar_movimento = False
     contador = 0
+    tecla_verificador = getattr(pg, f"K_{TECLA_VERIFICADOR.lower()}", None)
 
     for evento in eventos:
         if evento.type != pg.KEYDOWN or personagem.em_movimento:
@@ -168,6 +218,10 @@ def tratar_eventos_modo_comando(eventos, tela, personagem, adicionar_log):
         elif evento.key == pg.K_SPACE:
             personagem.movimento.append("SPACE")
             adicionar_log("Detectado: FRENTE")
+            contador += 1
+        elif tipo_verificador == "tecla" and tecla_verificador is not None and evento.key == tecla_verificador:
+            personagem.movimento.append(COMANDO_VERIFICADOR)
+            adicionar_log("Detectado: VERIFICADOR")
             contador += 1
         elif evento.key == pg.K_RETURN:
             executar_movimento = True
@@ -201,18 +255,27 @@ def tratar_eventos_modo_direto(eventos, tela, personagem, adicionar_log,
 
 
 def executar_fila_comandos(personagem, executar_movimento, command_in_progress,
+                           comando_atual, subacao_verificador,
                            last_command_finished_at, delay_entre_movimentos,
                            labirinto, tamanho_celula, modo_muito_facil):
     now_ticks = pg.time.get_ticks()
 
     if command_in_progress and not personagem.girando and not personagem.em_movimento:
-        command_in_progress = False
-        last_command_finished_at = now_ticks
+        if comando_atual == COMANDO_VERIFICADOR and subacao_verificador == "turn":
+            subacao_verificador = executar_comando_verificador(
+                personagem, labirinto, tamanho_celula, modo_muito_facil
+            )
+        else:
+            command_in_progress = False
+            comando_atual = None
+            subacao_verificador = None
+            last_command_finished_at = now_ticks
 
     if not command_in_progress and not personagem.girando and not personagem.em_movimento:
         if personagem.movimento:
             if now_ticks - last_command_finished_at >= delay_entre_movimentos:
                 comando = personagem.movimento.popleft()
+                comando_atual = comando
                 if comando == "LEFT":
                     personagem.girar_para(90)
                     command_in_progress = True
@@ -224,11 +287,23 @@ def executar_fila_comandos(personagem, executar_movimento, command_in_progress,
                         personagem.iniciar_movimento(tamanho_celula)
                         command_in_progress = True
                     else:
+                        comando_atual = None
                         last_command_finished_at = now_ticks
+                elif comando == COMANDO_VERIFICADOR:
+                    subacao_verificador = executar_comando_verificador(
+                        personagem, labirinto, tamanho_celula, modo_muito_facil
+                    )
+                    command_in_progress = True
         else:
             executar_movimento = False
 
-    return executar_movimento, command_in_progress, last_command_finished_at
+    return (
+        executar_movimento,
+        command_in_progress,
+        comando_atual,
+        subacao_verificador,
+        last_command_finished_at,
+    )
 
 
 def desenhar_objetivo(tela, objetivo_linha, objetivo_coluna, tamanho_celula):
@@ -240,7 +315,8 @@ def desenhar_objetivo(tela, objetivo_linha, objetivo_coluna, tamanho_celula):
 
 def renderizar_jogo(tela, grid_surf, maze_surf, modo_muito_facil, personagem,
                     desenhar_terminal, largura_terminal, objetivo_linha,
-                    objetivo_coluna, tamanho_celula, fonte_terminal, contador):
+                    objetivo_coluna, tamanho_celula, fonte_terminal, contador,
+                    fog_surf):
     pg.event.pump()
     tela.fill(COR_TELA)
     tela.blit(grid_surf, (0, 0))
@@ -248,6 +324,7 @@ def renderizar_jogo(tela, grid_surf, maze_surf, modo_muito_facil, personagem,
         tela.blit(maze_surf, (0, 0))
 
     desenhar_objetivo(tela, objetivo_linha, objetivo_coluna, tamanho_celula)
+    tela.blit(fog_surf, (0, 0))
     personagem.desenhar(tela)
     desenhar_terminal(tela, largura_terminal, tela.get_height(), tela.get_width())
 
@@ -269,7 +346,7 @@ def encerrar_jogo(camera):
 
 
 def executar_jogo():
-    valores, tipo_movimento = escolher_dificuldade_tkinter()
+    valores, tipo_movimento, tipo_verificador = escolher_dificuldade_tkinter()
     modo_comando = tipo_movimento == "comando"
 
     contexto_labirinto = preparar_labirinto(valores)
@@ -293,9 +370,16 @@ def executar_jogo():
     )
     adicionar_log, desenhar_terminal, fonte_terminal = criar_terminal()
     estado_camera = criar_estado_camera()
+    fog_surf = criar_fog_surface(linhas, colunas, tamanho_celula)
+    linha_inicial, coluna_inicial = obter_celula_personagem(
+        personagem, tamanho_celula, linhas, colunas
+    )
+    revelar_celula(fog_surf, linha_inicial, coluna_inicial, tamanho_celula)
 
     last_command_finished_at = pg.time.get_ticks()
     command_in_progress = False
+    comando_atual = None
+    subacao_verificador = None
     rodando = True
     executar_movimento = False
     contador = 0
@@ -306,7 +390,7 @@ def executar_jogo():
 
         if modo_comando and not executar_movimento:
             rodando, tela, contador_local, iniciar_execucao = tratar_eventos_modo_comando(
-                eventos, tela, personagem, adicionar_log
+                eventos, tela, personagem, adicionar_log, tipo_verificador
             )
             contador += contador_local
             if iniciar_execucao:
@@ -316,6 +400,8 @@ def executar_jogo():
                 for comando, origem in coletar_comandos_camera(
                     estado_camera, comando_camera, origem_camera
                 ):
+                    if comando == COMANDO_VERIFICADOR and tipo_verificador != "qr":
+                        continue
                     contador += registrar_comando_em_fila(
                         personagem, comando, origem, adicionar_log
                     )
@@ -338,10 +424,18 @@ def executar_jogo():
 
         else:
             rodando, tela = tratar_eventos_saida(tela, eventos)
-            executar_movimento, command_in_progress, last_command_finished_at = executar_fila_comandos(
+            (
+                executar_movimento,
+                command_in_progress,
+                comando_atual,
+                subacao_verificador,
+                last_command_finished_at,
+            ) = executar_fila_comandos(
                 personagem,
                 executar_movimento,
                 command_in_progress,
+                comando_atual,
+                subacao_verificador,
                 last_command_finished_at,
                 DELAY_ENTRE_MOVIMENTOS,
                 labirinto,
@@ -362,10 +456,15 @@ def executar_jogo():
             tamanho_celula,
             fonte_terminal,
             contador,
+            fog_surf,
         )
 
         personagem.atualizar_rotacao()
         personagem.atualizar_movimento()
+        linha_atual, coluna_atual = obter_celula_personagem(
+            personagem, tamanho_celula, linhas, colunas
+        )
+        revelar_celula(fog_surf, linha_atual, coluna_atual, tamanho_celula)
 
         if objetivo_foi_atingido(personagem, tamanho_celula, objetivo_linha, objetivo_coluna):
             rodando = False

@@ -20,7 +20,9 @@ from game_modules.config import (
     DILATE_IT,
     ERODE_IT,
     HSV_RANGES,
+    COMANDO_VERIFICADOR,
     QR_COMMAND_MAP,
+    QR_VERIFICADOR_PALAVRAS,
     ROI_H,
     ROI_W,
     SHOW_CAMERA,
@@ -98,7 +100,10 @@ def detectar_cor(camera):
 def normalizar_qr(data):
     if not data:
         return None
-    return QR_COMMAND_MAP.get(data.strip().upper())
+    texto = data.strip().upper()
+    if texto in QR_VERIFICADOR_PALAVRAS:
+        return COMANDO_VERIFICADOR
+    return QR_COMMAND_MAP.get(texto)
 
 
 def detectar_qr(camera, qr_detector):
@@ -160,6 +165,8 @@ def descrever_comando_camera(comando, origem):
         return f"Detectado: {origem_txt} -> DIREITA"
     if comando == "SPACE":
         return f"Detectado: {origem_txt} -> FRENTE"
+    if comando == COMANDO_VERIFICADOR:
+        return f"Detectado: {origem_txt} -> VERIFICADOR"
     return f"Detectado: {origem_txt}"
 
 

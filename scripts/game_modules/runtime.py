@@ -152,6 +152,13 @@ def executar_comando_verificador(personagem, labirinto, tamanho_celula, modo_mui
     return "blocked"
 
 
+def registrar_resultado_verificador(adicionar_log, resultado):
+    if resultado == "move":
+        adicionar_log("Verificador: caminho livre. Executando avanco.")
+    else:
+        adicionar_log("Verificador: parede detectada. Seguindo para o proximo comando da fila.")
+
+
 def pode_avancar(personagem, labirinto, tamanho_celula, modo_muito_facil):
     return modo_muito_facil or personagem.pode_mover_frente(labirinto, tamanho_celula)
 
@@ -177,9 +184,10 @@ def aplicar_comando_direto(personagem, comando, origem, adicionar_log,
         return 1
     if comando == COMANDO_VERIFICADOR and not personagem.girando and not personagem.em_movimento:
         adicionar_log(descrever_comando_camera(COMANDO_VERIFICADOR, origem))
-        if executar_comando_verificador(personagem, labirinto, tamanho_celula, modo_muito_facil) == "move":
-            return 1
-        adicionar_log("Verificador: parede detectada. Aguardando comando do usuario.")
+        resultado_verificador = executar_comando_verificador(
+            personagem, labirinto, tamanho_celula, modo_muito_facil
+        )
+        registrar_resultado_verificador(adicionar_log, resultado_verificador)
         return 1
     return 0
 
@@ -284,10 +292,10 @@ def executar_fila_comandos(personagem, executar_movimento, command_in_progress,
                     resultado_verificador = executar_comando_verificador(
                         personagem, labirinto, tamanho_celula, modo_muito_facil
                     )
+                    registrar_resultado_verificador(adicionar_log, resultado_verificador)
                     if resultado_verificador == "move":
                         command_in_progress = True
                     else:
-                        adicionar_log("Verificador: parede detectada. Aguardando comando do usuario.")
                         comando_atual = None
                         last_command_finished_at = now_ticks
         else:

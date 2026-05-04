@@ -19,7 +19,6 @@ from game_modules.config import (
     DELAY_ENTRE_MOVIMENTOS,
     FPS,
     TECLA_VERIFICADOR,
-    VERIFICADOR_GIRO_DIRECAO,
 )
 from game_modules.maze import preparar_labirinto
 from game_modules.player import Personagem
@@ -146,20 +145,11 @@ def registrar_comando_em_fila(personagem, comando, origem, adicionar_log):
     return 1
 
 
-def girar_verificador(personagem):
-    if VERIFICADOR_GIRO_DIRECAO == "LEFT":
-        personagem.girar_para(90)
-    else:
-        personagem.girar_para(-90)
-
-
 def executar_comando_verificador(personagem, labirinto, tamanho_celula, modo_muito_facil):
     if pode_avancar(personagem, labirinto, tamanho_celula, modo_muito_facil):
         personagem.iniciar_movimento(tamanho_celula)
         return "move"
-
-    girar_verificador(personagem)
-    return "turn"
+    return "blocked"
 
 
 def pode_avancar(personagem, labirinto, tamanho_celula, modo_muito_facil):
@@ -184,6 +174,12 @@ def aplicar_comando_direto(personagem, comando, origem, adicionar_log,
     ):
         personagem.iniciar_movimento(tamanho_celula)
         adicionar_log(descrever_comando_camera("SPACE", origem))
+        return 1
+    if comando == COMANDO_VERIFICADOR and not personagem.girando and not personagem.em_movimento:
+        adicionar_log(descrever_comando_camera(COMANDO_VERIFICADOR, origem))
+        if executar_comando_verificador(personagem, labirinto, tamanho_celula, modo_muito_facil) == "move":
+            return 1
+        adicionar_log("Verificador: parede detectada. Aguardando comando do usuario.")
         return 1
     return 0
 
@@ -255,21 +251,16 @@ def tratar_eventos_modo_direto(eventos, tela, personagem, adicionar_log,
 
 
 def executar_fila_comandos(personagem, executar_movimento, command_in_progress,
-                           comando_atual, subacao_verificador,
+                           comando_atual,
                            last_command_finished_at, delay_entre_movimentos,
-                           labirinto, tamanho_celula, modo_muito_facil):
+                           labirinto, tamanho_celula, modo_muito_facil,
+                           adicionar_log):
     now_ticks = pg.time.get_ticks()
 
     if command_in_progress and not personagem.girando and not personagem.em_movimento:
-        if comando_atual == COMANDO_VERIFICADOR and subacao_verificador == "turn":
-            subacao_verificador = executar_comando_verificador(
-                personagem, labirinto, tamanho_celula, modo_muito_facil
-            )
-        else:
-            command_in_progress = False
-            comando_atual = None
-            subacao_verificador = None
-            last_command_finished_at = now_ticks
+        command_in_progress = False
+        comando_atual = None
+        last_command_finished_at = now_ticks
 
     if not command_in_progress and not personagem.girando and not personagem.em_movimento:
         if personagem.movimento:
@@ -290,10 +281,15 @@ def executar_fila_comandos(personagem, executar_movimento, command_in_progress,
                         comando_atual = None
                         last_command_finished_at = now_ticks
                 elif comando == COMANDO_VERIFICADOR:
-                    subacao_verificador = executar_comando_verificador(
+                    resultado_verificador = executar_comando_verificador(
                         personagem, labirinto, tamanho_celula, modo_muito_facil
                     )
-                    command_in_progress = True
+                    if resultado_verificador == "move":
+                        command_in_progress = True
+                    else:
+                        adicionar_log("Verificador: parede detectada. Aguardando comando do usuario.")
+                        comando_atual = None
+                        last_command_finished_at = now_ticks
         else:
             executar_movimento = False
 
@@ -301,7 +297,6 @@ def executar_fila_comandos(personagem, executar_movimento, command_in_progress,
         executar_movimento,
         command_in_progress,
         comando_atual,
-        subacao_verificador,
         last_command_finished_at,
     )
 
@@ -379,7 +374,6 @@ def executar_jogo():
     last_command_finished_at = pg.time.get_ticks()
     command_in_progress = False
     comando_atual = None
-    subacao_verificador = None
     rodando = True
     executar_movimento = False
     contador = 0
@@ -428,19 +422,18 @@ def executar_jogo():
                 executar_movimento,
                 command_in_progress,
                 comando_atual,
-                subacao_verificador,
                 last_command_finished_at,
             ) = executar_fila_comandos(
                 personagem,
                 executar_movimento,
                 command_in_progress,
                 comando_atual,
-                subacao_verificador,
                 last_command_finished_at,
                 DELAY_ENTRE_MOVIMENTOS,
                 labirinto,
                 tamanho_celula,
                 modo_muito_facil,
+                adicionar_log,
             )
 
         renderizar_jogo(

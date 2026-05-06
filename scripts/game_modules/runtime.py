@@ -24,6 +24,13 @@ from game_modules.maze import preparar_labirinto
 from game_modules.player import Personagem
 from game_modules.ui import escolher_dificuldade_tkinter
 
+RAMO_LIVRE = "livre"
+RAMO_PAREDE = "parede"
+NOMES_RAMOS = {
+    RAMO_LIVRE: "LIVRE",
+    RAMO_PAREDE: "PAREDE",
+}
+
 
 def init_jogo(tamanho_celula, linhas, colunas):
     pg.init()
@@ -145,6 +152,88 @@ def registrar_comando_em_fila(personagem, comando, origem, adicionar_log):
     return 1
 
 
+def criar_editor_comandos(fila_principal):
+    return {
+        "pilha": [
+            {
+                "lista": fila_principal,
+                "verificador": None,
+                "ramo": None,
+            }
+        ],
+        "proximo_id": 1,
+    }
+
+
+def obter_lista_editor(editor_comandos):
+    return editor_comandos["pilha"][-1]["lista"]
+
+
+def descrever_posicao_editor(editor_comandos):
+    partes = []
+    for nivel in editor_comandos["pilha"][1:]:
+        partes.append(f"V{nivel['verificador']['id']}:{NOMES_RAMOS[nivel['ramo']]}")
+    if not partes:
+        return "lista principal"
+    return " > ".join(partes)
+
+
+def adicionar_comando_ao_editor(editor_comandos, comando):
+    obter_lista_editor(editor_comandos).append(comando)
+
+
+def criar_verificador_no_editor(editor_comandos):
+    verificador = {
+        "tipo": COMANDO_VERIFICADOR,
+        "id": editor_comandos["proximo_id"],
+        RAMO_LIVRE: [],
+        RAMO_PAREDE: [],
+    }
+    editor_comandos["proximo_id"] += 1
+    obter_lista_editor(editor_comandos).append(verificador)
+    editor_comandos["pilha"].append(
+        {
+            "lista": verificador[RAMO_LIVRE],
+            "verificador": verificador,
+            "ramo": RAMO_LIVRE,
+        }
+    )
+    return verificador
+
+
+def alternar_ramo_editor(editor_comandos):
+    if len(editor_comandos["pilha"]) <= 1:
+        return None
+
+    nivel = editor_comandos["pilha"][-1]
+    novo_ramo = RAMO_PAREDE if nivel["ramo"] == RAMO_LIVRE else RAMO_LIVRE
+    nivel["ramo"] = novo_ramo
+    nivel["lista"] = nivel["verificador"][novo_ramo]
+    return nivel
+
+
+def fechar_verificador_editor(editor_comandos):
+    if len(editor_comandos["pilha"]) <= 1:
+        return None
+    return editor_comandos["pilha"].pop()
+
+
+def voltar_editor_para_lista_principal(editor_comandos):
+    estava_em_verificador = len(editor_comandos["pilha"]) > 1
+    editor_comandos["pilha"] = editor_comandos["pilha"][:1]
+    return estava_em_verificador
+
+
+def registrar_comando_no_editor(editor_comandos, comando, origem, adicionar_log):
+    if comando == COMANDO_VERIFICADOR:
+        verificador = criar_verificador_no_editor(editor_comandos)
+        adicionar_log(f"Verificador V{verificador['id']} criado: ramo LIVRE.")
+    else:
+        adicionar_comando_ao_editor(editor_comandos, comando)
+        adicionar_log(descrever_comando_camera(comando, origem))
+    return 1
+
+
 def executar_comando_verificador(personagem, labirinto, tamanho_celula, modo_muito_facil):
     if pode_avancar(personagem, labirinto, tamanho_celula, modo_muito_facil):
         personagem.iniciar_movimento(tamanho_celula)
@@ -157,6 +246,16 @@ def registrar_resultado_verificador(adicionar_log, resultado):
         adicionar_log("Verificador: caminho livre. Executando avanco.")
     else:
         adicionar_log("Verificador: parede detectada. Seguindo para o proximo comando da fila.")
+
+
+def escolher_ramo_verificador(personagem, labirinto, tamanho_celula, modo_muito_facil):
+    if pode_avancar(personagem, labirinto, tamanho_celula, modo_muito_facil):
+        return RAMO_LIVRE
+    return RAMO_PAREDE
+
+
+def registrar_ramo_verificador(adicionar_log, verificador, ramo):
+    adicionar_log(f"Verificador V{verificador['id']}: executando ramo {NOMES_RAMOS[ramo]}.")
 
 
 def pode_avancar(personagem, labirinto, tamanho_celula, modo_muito_facil):
@@ -202,7 +301,8 @@ def tratar_eventos_saida(tela, eventos):
     return rodando, tela
 
 
-def tratar_eventos_modo_comando(eventos, tela, personagem, adicionar_log, tipo_verificador):
+def tratar_eventos_modo_comando(eventos, tela, personagem, adicionar_log,
+                                tipo_verificador, editor_comandos):
     rodando, tela = tratar_eventos_saida(tela, eventos)
     executar_movimento = False
     contador = 0
@@ -212,22 +312,36 @@ def tratar_eventos_modo_comando(eventos, tela, personagem, adicionar_log, tipo_v
         if evento.type != pg.KEYDOWN or personagem.em_movimento:
             continue
         if evento.key == pg.K_LEFT:
-            personagem.movimento.append("LEFT")
+            adicionar_comando_ao_editor(editor_comandos, "LEFT")
             adicionar_log("Detectado: ESQUERDA")
             contador += 1
         elif evento.key == pg.K_RIGHT:
-            personagem.movimento.append("RIGHT")
+            adicionar_comando_ao_editor(editor_comandos, "RIGHT")
             adicionar_log("Detectado: DIREITA")
             contador += 1
         elif evento.key == pg.K_SPACE:
-            personagem.movimento.append("SPACE")
+            adicionar_comando_ao_editor(editor_comandos, "SPACE")
             adicionar_log("Detectado: FRENTE")
             contador += 1
         elif tipo_verificador == "tecla" and tecla_verificador is not None and evento.key == tecla_verificador:
-            personagem.movimento.append(COMANDO_VERIFICADOR)
-            adicionar_log("Detectado: VERIFICADOR")
+            verificador = criar_verificador_no_editor(editor_comandos)
+            adicionar_log(f"Verificador V{verificador['id']} criado: ramo LIVRE.")
             contador += 1
+        elif evento.key == pg.K_TAB:
+            nivel = alternar_ramo_editor(editor_comandos)
+            if nivel:
+                adicionar_log(
+                    f"V{nivel['verificador']['id']}: editando ramo {NOMES_RAMOS[nivel['ramo']]}."
+                )
+        elif evento.key == pg.K_BACKSPACE:
+            nivel = fechar_verificador_editor(editor_comandos)
+            if nivel:
+                adicionar_log(
+                    f"Fechou V{nivel['verificador']['id']}. Editando {descrever_posicao_editor(editor_comandos)}."
+                )
         elif evento.key == pg.K_RETURN:
+            if voltar_editor_para_lista_principal(editor_comandos):
+                adicionar_log("Executando lista principal.")
             executar_movimento = True
 
     return rodando, tela, contador, executar_movimento
@@ -298,6 +412,15 @@ def executar_fila_comandos(personagem, executar_movimento, command_in_progress,
                     else:
                         comando_atual = None
                         last_command_finished_at = now_ticks
+                elif isinstance(comando, dict) and comando.get("tipo") == COMANDO_VERIFICADOR:
+                    ramo = escolher_ramo_verificador(
+                        personagem, labirinto, tamanho_celula, modo_muito_facil
+                    )
+                    registrar_ramo_verificador(adicionar_log, comando, ramo)
+                    for comando_do_ramo in reversed(comando[ramo]):
+                        personagem.movimento.appendleft(comando_do_ramo)
+                    comando_atual = None
+                    last_command_finished_at = now_ticks
         else:
             executar_movimento = False
 
@@ -385,6 +508,7 @@ def executar_jogo():
     rodando = True
     executar_movimento = False
     contador = 0
+    editor_comandos = criar_editor_comandos(personagem.movimento)
 
     while rodando:
         eventos = pg.event.get()
@@ -392,7 +516,7 @@ def executar_jogo():
 
         if modo_comando and not executar_movimento:
             rodando, tela, contador_local, iniciar_execucao = tratar_eventos_modo_comando(
-                eventos, tela, personagem, adicionar_log, tipo_verificador
+                eventos, tela, personagem, adicionar_log, tipo_verificador, editor_comandos
             )
             contador += contador_local
             if iniciar_execucao:
@@ -404,8 +528,8 @@ def executar_jogo():
                 ):
                     if comando == COMANDO_VERIFICADOR and tipo_verificador != "qr":
                         continue
-                    contador += registrar_comando_em_fila(
-                        personagem, comando, origem, adicionar_log
+                    contador += registrar_comando_no_editor(
+                        editor_comandos, comando, origem, adicionar_log
                     )
 
         elif not modo_comando:
